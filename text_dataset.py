@@ -31,7 +31,7 @@ from tokenizer import TokenizerBase, GPT2BPETokenizer
 
 def _check_text_size(text_tensor, context_window):
     """Verify the context window does not exceed the input text."""
-    if len(self._text_tensor) <= context_window:
+    if len(text_tensor) <= context_window:
         raise ValueError("The data set text should be at least longer than the context window!")
 
 
@@ -42,10 +42,10 @@ class TextDataset(torch.utils.data.Dataset):
     python's memory overhead in strings will cause crashes.
     """
     def __init__(self, text: str, tokenizer: TokenizerBase, context_window: int):
-        self._text_tensor = torch.Tensor(self._tokenizer.encode(text)).int()
+        self._text_tensor = torch.Tensor(tokenizer.encode(text)).int()
         self._context_window = context_window
-        _check_text_size(text_tensor, context_window)
-        self._vocab_size = self._tokenizer.vocab_size()
+        _check_text_size(self._text_tensor, context_window)
+        self._vocab_size = tokenizer.vocab_size()
 
     def vocab_size(self):
         return self._vocab_size
