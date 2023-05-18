@@ -45,22 +45,15 @@ def _convert_txt_shards_to_binary(tokenizer, dir_path):
     """
     # WARNING: It is crucial to keep the correct order here.
     for i, f in enumerate(sorted(os.listdir(dir_path))):
-        arrays = []
         fp = os.path.join(dir_path, f)
         
-        # Convert the text file to arrays line-by-line since the tokenizer might accept a limited
-        # input size.
         with open(fp) as txt_file:
-            for l in txt_file.readlines():
-                arrays.append(np.array(tokenizer.encode(l), dtype=np.uint16))
-
-        # Concetenate all the encoded lines.
-        arrays = np.concatenate(arrays, axis=0)
+            array = np.array(tokenizer.encode(txt_file.read()), dtype=np.uint16)
 
         # Save the full encoded array as a numpy binary.
         out_name = (os.path.splitext(f)[0] + f"_binary_shard_{i}.npy")
         out_path = os.path.join(dir_path, out_name)
-        np.save(out_path, arrays)
+        np.save(out_path, array)
 
 
 def _merge_binaries(input_directory, merged_path):
@@ -110,4 +103,4 @@ if __name__ == "__main__":
     with open(args.input_path) as f:
         original = f.read()
     decoded = tokenizer.decode(np.load(output_path))
-    assert decoded[-1000:] == original[-1000:], "Decoded and original text must be the same!"
+    assert decoded == original, "Decoded and original text must be the same!"
