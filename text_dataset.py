@@ -50,6 +50,9 @@ class TextDataset(torch.utils.data.Dataset):
     def vocab_size(self):
         return self._vocab_size
 
+    def context_window(self):
+        return self._context_window
+
     def __len__(self):
         """Number of samples in the data set.
 
@@ -92,7 +95,9 @@ class PreEncodedDataset(TextDataset):
         # it fits into 16 bit unsigned but not signed integers. If we want to maximize the text
         # we can load into our RAM memory, we want to only convert the numpy arrays to torch
         # tensors on an as-needed basis during training.
-        self._text_array = np.concatenate(arrays, axis=0)
+        # Even though this is a numpy array we keep the "tensor" name so the inherited __len__
+        # method works out of the box.
+        self._text_tensor = np.concatenate(arrays, axis=0)
         self._context_window = context_window
         if vocab_size is None:
             self._vocab_size = GPT2BPETokenizer().vocab_size()
@@ -103,7 +108,7 @@ class PreEncodedDataset(TextDataset):
         end_index = index + self._context_window
 
         # Torch does not support all numpy types like uint16, so cast before making tensors.
-        x = torch.from_numpy(self._text_array[index:end_index].astype(np.int64))
-        y = torch.from_numpy(self._text_array[index+1:end_index+1].astype(np.int64))
+        x = torch.from_numpy(self._text_tensor[index:end_index].astype(np.int64))
+        y = torch.from_numpy(self._text_tensor[index+1:end_index+1].astype(np.int64))
         return x, y
 
