@@ -57,7 +57,7 @@ class TextDataset(torch.utils.data.Dataset):
         input of size 'context_window' and the targets are the next tokens, so another offset of
         1 is needed.
         """
-        return (len(self._text_tensor) - self._context_window - 1)
+        return (len(self._text_tensor) - self._context_window)
 
     def __getitem__(self, index: int):
         end_index = index + self._context_window

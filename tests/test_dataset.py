@@ -14,17 +14,15 @@ def test_text_dataset(text: str):
     encoded_text = []
 
     for i, (x, y) in enumerate(dset):
-        if i >= len(dset): break
         encoded_text.append(x)
+
+        # Important to put to break here so another y value does not get set by the loop.
+        if i == (len(dset) - 1): break
 
     # The last token can only be generated as a target.
     encoded_text.append(y)
-    
 
     decoded_text = tokenizer.decode(encoded_text)
-    print(decoded_text[-100:])
-    print("#"*1000)
-    print(text[-100:])
     assert decoded_text == text, "Text coming out of TextDataset must be able to reproduce the original text."
 
 
