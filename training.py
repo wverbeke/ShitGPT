@@ -17,22 +17,32 @@ from typing import Callable
 from constants import DEVICE
 
 
-class ModelTrainer:
-    """Helper class collecting all the necessary bits to train the neural network model."""
+def compute_cross_entropy(logits, targets):
+    """Wrap the cross entropy calculation to batch it across the full token sequence."""
+    B, T, C = logits.shape
+    logits = logits.view(B*T, C)
+    targets = targets.view(B*T)
+    return torch.nn.functional.cross_entropy(logits, targets)
 
-    def __init__(self, loss_fn: Callable, optimizer: Callable, model: nn.Module, dloader: torch.utils.data.DataLoader, batches_to_accumulate: int = None):
+
+class ModelTrainer:
+    """Helper class collecting all the necessary bits to train the neural network model.
+
+    The language model is trained autoregressively with automatic mixed precision and gradient
+    accumulation.
+    """
+
+    def __init__(self, model: nn.Module, optimizer: Callable, dloader: torch.utils.data.DataLoader, batches_to_accumulate: int = None):
         """Initialize.
 
         Args:
-            loss_fn: Loss function. Call this on the outputs and targets to get a loss value.
-            optimizer: Gradient descent optimizer.
             model: The GPT model.
+            optimizer: Gradient descent optimizer.
             dloader: Data loader for the model training.
             batches_to_accumulate: We are training very large models, so the batch sizes a GPU can
                                    handle are large. We compensate for this by accumulating
                                    gradients over several passes through the model.
         """
-        self._loss_fn = loss_fn
         self._optimizer = optimizer
         self._model = model
         self._dloader = dloader
@@ -42,7 +52,8 @@ class ModelTrainer:
         # To check against the number of batches to accumulate.
         self._batches_since_update = 0
 
-        # This scaler is necessary for running in mixed precision mode.
+        # This scaler is necessary for running in mixed precision mode. Mixed precision is
+        # essential since we 
         self._scaler = torch.cuda.amp.GradScaler()
 
 
@@ -57,25 +68,30 @@ class ModelTrainer:
             Loss for the given batch and labels.
         """
 
-        # Forward pass is run in fp16.
+        # Forward pass is run in fp16 for speedup.
         # Warning: Do not run the backward pass in fp16, this will result in divergences.
         with torch.autocast(device_type=DEVICE, dtype=torch.float16):
             pred = self._model(x_batch)
-            loss = self._loss_fn(pred, y_batch)
+            loss = compute_cross_entropy(pred, y_batch)
 
             # Compensate loss for gradient accumulation.
+            # If this is not done the accumulated gradient will become gigantic and disturb
+            # training.
             if self._batches_to_accumulate is not None:
                 loss /= self._batches_to_accumulate
 
         # Backward pass.
+        # We must scale the gradients to prevent gradient underflow in mixed precision.
         self._scaler.scale(loss).backward()
 
         # We only update the model parameters when we accumulated sufficient gradients.
+        # In other words we will accumulate gradients and not zero them out.
         self._batches_since_update += 1
 
         if (self._batches_to_accumulate is None) or (self._batches_since_update == self._batches_to_accumulate):
 
-            # Scale the optimizer for mixed precision stability.
+            # To do reasonable gradient clipping we need to first unscale the gradients because the
+            # assigned parameters of the optimizer are unscaled.
             self._scaler.unscale_(self._optimizer)
 
             # Apply gradient clipping to avoid divergent behavior early during training.
@@ -85,14 +101,14 @@ class ModelTrainer:
             self._scaler.step(self._optimizer)
             self._scaler.update()
 
-            # Reset necessary fields.
+            # Zero out the gradients after the accumulated update.
             self._optimizer.zero_grad(set_to_none=True)
             self._batches_since_update = 0
 
         # Make sure loss is still interpretable to user, despite gradient accumulation.
         if self._batches_to_accumulate is None:
-            return loss
-        return loss*self._batches_to_accumulate
+            return loss.item()
+        return loss.item()*self._batches_to_accumulate
 
     def _save_model_and_optimizer(self, path: str) -> None:
         """Save the model and optimizer states.
