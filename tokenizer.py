@@ -9,6 +9,7 @@ import abc
 from typing import List, Iterable
 
 import torch
+import numpy as np
 import tiktoken
 
 
@@ -33,6 +34,16 @@ class TokenizerBase(abc.ABC):
     @abc.abstractmethod
     def decode(self, tokens: Iterable) -> str:
         """Decode a given sequence of tokens."""
+
+    def smallest_int_type(self) -> np.dtype:
+        """Find the smallest integer type that can represent tokens from this tokenizer."""
+        if self.vocab_size() < 2**8:
+            return np.uint8
+        elif self.vocab_size() < 2**16:
+            return np.uint16
+        elif self.vocab_size() < 2**32:
+            return np.uint32
+        raise ValueError("A vocabulary of more than 2**32 tokens does not make sense.")
 
 
 class CharTokenizer(TokenizerBase):
@@ -65,7 +76,7 @@ class CharTokenizer(TokenizerBase):
         return "".join(self._decode_dict[int(t)] for t in tokens)
 
 
-class GPT2BPETokenizer:
+class GPT2BPETokenizer(TokenizerBase):
     """Byte pair encoder tokenizer used in GPT 2."""
     def __init__(self):
         self._tokenizer = tiktoken.get_encoding("gpt2")
@@ -81,6 +92,7 @@ class GPT2BPETokenizer:
         if isinstance(tokens, torch.Tensor):
             tokens = tokens.tolist()
         return self._tokenizer.decode(tokens)
+
 
 
 if __name__ == "__main__":
