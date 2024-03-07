@@ -7,7 +7,7 @@ The training uses mixed precision (fp16 in the forward pass, fp32 in the backwar
 training, and gradient accumulation to compensate for the fact that a GPU can only run very small
 batches on large language models without going out of memory.
 """
-from typing import Optional
+from typing import Optional, List
 import torch
 import os
 import json
@@ -20,13 +20,14 @@ from constants import DEVICE
 class ModelTrainer:
     """Helper class collecting all the necessary bits to train the neural network model."""
 
-    def __init__(self, loss_fn: Callable, optimizer: Callable, model: nn.Module, batches_to_accumulate: int = None):
+    def __init__(self, loss_fn: Callable, optimizer: Callable, model: nn.Module, dloader: torch.utils.data.DataLoader, batches_to_accumulate: int = None):
         """Initialize.
 
         Args:
             loss_fn: Loss function. Call this on the outputs and targets to get a loss value.
             optimizer: Gradient descent optimizer.
             model: The GPT model.
+            dloader: Data loader for the model training.
             batches_to_accumulate: We are training very large models, so the batch sizes a GPU can
                                    handle are large. We compensate for this by accumulating
                                    gradients over several passes through the model.
@@ -34,8 +35,7 @@ class ModelTrainer:
         self._loss_fn = loss_fn
         self._optimizer = optimizer
         self._model = model
-        self._device = DEVICE
-        self._epoch_counter = 1
+        self._dloader = dloader
 
         self._batches_to_accumulate = batches_to_accumulate
 
@@ -46,8 +46,16 @@ class ModelTrainer:
         self._scaler = torch.cuda.amp.GradScaler()
 
 
-    def train_step(self, x_batch: torch.Tensor, y_batch: torch.Tensor):
-        """Run a single batch through the model for training."""
+    def _train_step(self, x_batch: torch.Tensor, y_batch: torch.Tensor) -> float:
+        """Run a single batch through the model for training.
+        
+        Args:
+            x_batch: Batch of input data.
+            y_batch: Batch of labels.
+
+        Returns:
+            Loss for the given batch and labels.
+        """
 
         # Forward pass is run in fp16.
         # Warning: Do not run the backward pass in fp16, this will result in divergences.
@@ -86,21 +94,82 @@ class ModelTrainer:
             return loss
         return loss*self._batches_to_accumulate
 
-    def save_model_and_optimizer(self, path: str):
-        """Save the model and optimizer states."""
+    def _save_model_and_optimizer(self, path: str) -> None:
+        """Save the model and optimizer states.
+
+        Args:
+            path: Path to which the model and the optimizer state will be saved.
+        """
         checkpoint = {
             "model": self._model.state_dict(),
             "optimizer": self._optimizer.state_dict(),
         }
         torch.save(checkpoint, path)
 
+
+    # Warning: If this method is changed, the _extract_saved_model_number function below should
+    # be modified accordingly.
+    def _save_model_name(self, index: int) -> str:
+        return os.path.join(self._save_dir, f"{self._save_name}_{index}.pth")
+
+
+    def _save_model(self, index: int) -> str:
+        """Save a version of the model.
+
+        Args:
+            index: This is the version index of the model. Every time it gets saved, the index of
+                   the model should be incremented by 1.
+
+        """
+        path = self._save_model_name(index=index)
+        print(f"Saving model to {path}.")
+        self.save_model(path)
+        return path
+
+    def _save_loss(self, index: int, losses: List) -> str
+        """Save the losses to a json file.
+        
+        Args:
+            index: See _save_model.
+            losses: List of loss values for all forward passes that have been done since the losses
+                    were last saved.
+        """
+        # TODO: This should probably come from a function
+        path = os.path.join(self._save_dir, f"{self._save_name}_losses_{i}.txt")
+        json_dict = {
+            "batches_to_accumulate": self._batches_to_accumulate,
+            "losses": losses
+        }
+        json_object = json.dumps(json_dict)
+        with open(path, "w") as f:
+            f.write(json_object)
+        return path
+
+    def _list_saved_models(self) -> List[str]:
+        """Return a list of saved models in historical order.
+
+        The last entry in the list is the latest stored model, the first is the oldest.
+        """
+        def _extract_saved_model_number(path: str) -> int:
+            """Extract the iteration index given a model number."""
+            # Exploit the fact that save_loss appends a number with an "_" at the end.
+            path = path.split("_")[-1]
+
+            # Remove the file extension.
+            path = os.path.splitext(path)[0]
+            return int(path)
+
+        contents = os.listdir(self._save_dir)
+        models = [os.path.join(self._save_dir, f) for f in contents if self._save_name in f]
+        numbered_models = [(_extract_saved_model_number(f), f) for f in models]
+        models = [m for m, i in sorted(tagged_models, key=lambda x: x[0])]
+        return models
+
+
     def train_x_steps(
         self,
-        train_loader: torch.utils.data.DataLoader,
         num_steps: int,
-        save_dir: str,
-        save_name: str,
-        continue_from_checkpoint: bool = True,
+        continue_from_last_checkpoint: bool = True,
         save_every_x_steps: Optional[int] = None,
         save_max_x_models: Optional[int] = 100
     ):
@@ -112,33 +181,19 @@ class ModelTrainer:
         hardware constraints a single epoch over an appropriate data set will take weeks.
 
         Args:
-            
+            num_steps: Number of training steps that will be done. Note that the model weights
+                       might not be updated at every iteration because batches can be accumulated.
+            continue_from_last_checkpoint: Whether to continue from the last available checkpoint
+                                           or not. This checkpoint will be automatically found in
+                                           the appropriate directory.
+           
+
+
+        
 
         """
-
-        def _save(i):
-            path = os.path.join(save_dir, f"{save_name}_{i}.pth")
-            print(f"saving model to {path}")
-            self.save_model(path)
-
-        def _save_loss(i, losses):
-            path = os.path.join(save_dir, f"losses_{i}.pth")
-            json_dict = {
-                "batches_to_accumulate": self._batches_to_accumulate,
-                "losses": losses
-            }
-            json_object = json.dumps(json_dict)
-            with open(path, "w") as f:
-                f.write(json_object)
-
-        def _list_saved_models():
-            contents = os.listdir(save_dir)
-            models = [os.path.join(save_dir, f) for f in contents if save_name in f]
-            tagged_models = [(f, _extract_saved_model_number(f)) for f in models]
-            return tagged_models
-
-        def _extract_saved_model_number(path):
-            return int(path.split("_")[-1].split(".")[0])
+        # Make sure the save directory exists.
+        os.makedirs(self._save_dir, exist_ok=True)
 
         save_index = 0
         if continue_from_checkpoint:
@@ -155,7 +210,7 @@ class ModelTrainer:
 
         losses = []
 
-        for i, (x_batch, y_batch) in tqdm(enumerate(train_loader)):
+        for i, (x_batch, y_batch) in tqdm(enumerate(self._train_loader)):
             if i >= num_steps:
                 _save(save_index)
                 save_index += 1
@@ -172,8 +227,6 @@ class ModelTrainer:
                     earliest_model = sorted(saved_models, key=lambda x: x[1])[0][0]
                     os.remove(earliest_model)
                 save_index += 1
-
-
 
 def infinite_dataloader(dataloader):
     i = iter(dataloader)
