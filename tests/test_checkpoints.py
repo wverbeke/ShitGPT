@@ -59,7 +59,7 @@ class TestCPHandler:
         for _ in range(num_models):
             m = toy_model()
             o = optimizer(m)
-            self._cp_handler.store_new_checkpoint(m, o)
+            self._cp_handler.save_new_checkpoint(m, o)
 
     def test_checkpoint_paths(self):
         """Verify that 20 models are stored with the correct paths."""
@@ -82,7 +82,7 @@ class TestCPHandler:
         original_m = toy_model()
         original_o = optimizer(original_m)
 
-        self._cp_handler.store_new_checkpoint(original_m, original_o)
+        self._cp_handler.save_new_checkpoint(original_m, original_o)
         
         loaded_m = toy_model()
         loaded_o = optimizer(loaded_m)

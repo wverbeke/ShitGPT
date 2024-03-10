@@ -135,7 +135,7 @@ class CheckpointHandler:
         for f in to_delete:
             os.remove(f)
 
-    def store_new_checkpoint(self, model, optimizer):
+    def save_new_checkpoint(self, model, optimizer):
         checkpoints = self.list_checkpoints()
         if not len(checkpoints):
             new_index = 0

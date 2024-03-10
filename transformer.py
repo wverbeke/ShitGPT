@@ -64,7 +64,7 @@ class CausalFlashSelfAttention(nn.Module):
         # as a part of the attention block. WE apply this as well.
         self._out_transf = nn.Linear(in_channels, in_channels, bias=False)
         self._n_heads = n_heads
-        self._view_dim = in_channels//n_heads
+        self._head_dim = in_channels//n_heads
         self._in_channels = in_channels
         self._dropout_p = dropout_p
 
@@ -77,13 +77,13 @@ class CausalFlashSelfAttention(nn.Module):
         # The same applies to all the attention heads, we can do their respective transforms in one
         # big one.
         # The split happens along the last dimension.
-        queries, keys, values = self._att_transf(x).split(self._in_channels, dim=2)
+        queries, keys, values = self._att_transf(x).split(self._in_channels, dim=-1)
 
         # We need to transform the keys queries and values to be able to apply multiple attention
         # heads.
-        queries = queries.view(B, T, self._n_heads, self._view_dim).transpose(1, 2)
-        keys = keys.view(B, T, self._n_heads, self._view_dim).transpose(1, 2)
-        values = values.view(B, T, self._n_heads, self._view_dim).transpose(1, 2)
+        queries = queries.view(B, T, self._n_heads, self._head_dim).transpose(1, 2)
+        keys = keys.view(B, T, self._n_heads, self._head_dim).transpose(1, 2)
+        values = values.view(B, T, self._n_heads, self._head_dim).transpose(1, 2)
 
         # Torch implementation of flash attention.
         # is_causal is crucial here, since otherwise the model will be able to look at tokens into
@@ -104,7 +104,7 @@ def _ln(x: torch.Tensor):
 
 class TransformerBlock(nn.Module):
     """Implementation of a transformer block, which contains an attention layer."""
-    def __init__(self, in_channels: int, n_heads: int, dropout_p: float = 0.0, mlp_channels=None):
+    def __init__(self, in_channels: int, n_heads: int, expansion_factor: int = 4, dropout_p: float = 0.0):
         """Initialize the transformer block.
     
         After the attention layer a two-layer MLP is applied. Both the attention operation and the
@@ -119,20 +119,18 @@ class TransformerBlock(nn.Module):
 
         Args:
             ...mostly obvious...
-            mlp_channels: This determines the number of output channels of the first projection in
-                          the two layer MLP. By default this is 4 times the dimensionality of the
-                          internal state of the attention layers since this is what GPT uses. My
-                          speculation is that the motivation for this is that making the
-                          dimensionality higher before applying ReLU prevents information loss.
-                          This mechanism is explained in a lot of detail in the paper introducing
-                          MobileNetV2: https://arxiv.org/abs/1801.04381.
+            expansion_factor: This determines the number of output channels of the first projection
+                              in the two layer MLP. By default this is 4 times the dimensionality
+                              of the internal state of the attention layers since this is what GPT
+                              uses. My speculation is that the motivation for this is that making
+                              the dimensionality higher before applying ReLU prevents information
+                              loss. This mechanism is explained in a lot of detail in the paper
+                              introducing MobileNetV2: https://arxiv.org/abs/1801.04381.
         """
         super().__init__()
-        if mlp_channels is None:
-            mlp_channels = in_channels*4
         self._attention_layer = CausalFlashSelfAttention(in_channels=in_channels, n_heads=n_heads, dropout_p=dropout_p)
-        self._linear_1 = nn.Linear(in_channels, mlp_channels, bias=True)
-        self._linear_2 = nn.Linear(mlp_channels, in_channels, bias=True)
+        self._linear_1 = nn.Linear(in_channels, in_channels*expansion_factor, bias=True)
+        self._linear_2 = nn.Linear(in_channels*expansion_factor, in_channels, bias=True)
 
         def _do(x: torch.Tensor):
             """Dropout."""
@@ -164,7 +162,7 @@ def _init_weights(module: nn.Module):
 
 class TransformerModel(nn.Module):
 
-    def __init__(self, vocab_size: int, context_window: int, n_layers: int, n_heads: int, dim: float, dropout_p: float):
+    def __init__(self, vocab_size: int, context_window: int, n_layers: int, n_heads: int, dim: float, expansion_factor: int, dropout_p: float):
         """Create the full transformer model."""
         super().__init__()
 
@@ -180,7 +178,7 @@ class TransformerModel(nn.Module):
 
         # Stack a number of transformer blocks.
         self._transformer_blocks = nn.Sequential(
-            *[TransformerBlock(in_channels=dim, n_heads=n_heads, dropout_p=dropout_p, mlp_channels=None) for _ in range(n_layers)]
+            *[TransformerBlock(in_channels=dim, n_heads=n_heads, expansion_factor=expansion_factor, dropout_p=dropout_p) for _ in range(n_layers)]
         )
 
         # The output needs to be transformed back to token space for the final classification.
@@ -200,7 +198,7 @@ class TransformerModel(nn.Module):
         # they write "We scale the weights of residual layers at initialization by a factor of
         # 1/sqrt(N) where N is the number of residual layers."
         for pn, p in self.named_parameters():
-            if pn.endswith('_out_transf.weight'):
+            if pn.endswith('_out_transf.weight') or pn.endswith("_linear_2.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * n_layers))
 
 
