@@ -5,6 +5,11 @@ import torch
 MODEL_KEY = "model"
 OPTIMIZER_KEY = "optimizer"
 GRAD_SCALER_KEY = "grad_scaler"
+LOSS_KEY = "losses"
+ACCUMULATION_STEPS_KEY = "accumulation_steps"
+
+CHECKPOINT = "checkpoint"
+LOSS_DUMP = "loss_dump"
 
 def _save_model_and_optimizer(model, optimizer, grad_scaler, path: str) -> None:
      """Save a model and associated optimizer states.
@@ -34,7 +39,7 @@ def _load_model(checkpoint_path, model):
     return model
     
 
-def _extract_model_iteration(path: str) -> int:
+def _extract_file_iteration(path: str) -> int:
     """Extract the iteration index given a model path."""
     # Exploit the fact that _new_checkpoint_path appends a number with an "_" at the end.
     index_path = path.split("_")[-1]
@@ -42,10 +47,26 @@ def _extract_model_iteration(path: str) -> int:
     # Remove the file extension.
     index_path = os.path.splitext(index_path)[0]
     index = int(index_path)
-
-    # Verify that it is consistent with the _new_checkpoint_path function before returning.
-    #assert self._save_path(index) == path
     return index
+
+def _list_and_sort_indexed_files(path: str, identifier: str) -> List[str]:
+    """Return a list of indexed files in ascending index order.
+
+    The last entry in the list is the latest file, the first is the oldest.
+
+    This routine does not search recursively.
+    """
+    contents = os.listdir(path)
+    files = [os.path.join(path, f) for f in contents if identifier in f]
+    indexed_files = [(_extract_file_iteration(f), f) for f in files]
+    return [m for i, m in sorted(indexed_files, key=lambda x: x[0])]
+
+def _max_index(path: str, identifier: str) -> int:
+    """Maximum index present in a directory of indexed files."""
+    ordered_files = _list_and_sort_indexed_files(path, identifier)
+    if not ordered_files:
+        return -1
+    return _extract_file_iteration(ordered_files[-1])
 
 
 
@@ -63,8 +84,7 @@ class CheckpointHandler:
         Warning: If this method is changed, the _extract_saved_model_number function below should
         be modified accordingly.
         """
-        return os.path.join(self._checkpoint_dir, f"{self._model_name}_{index}.pth")
-
+        return os.path.join(self._checkpoint_dir, f"{self._model_name}_{CHECKPOINT}_{index}.pth")
 
     # Maybe this function is superfluous
     def _save_checkpoint(self, model, optimizer, grad_scaler, index: int) -> str:
@@ -81,48 +101,17 @@ class CheckpointHandler:
         _save_model_and_optimizer(model, optimizer, grad_scaler, path)
         return path
 
-
-    #def _loss_dump_path(self, index: int) -> str:
-    #    return os.path.join(self._checkpoint_dir, f"{self._model_name}_losses_{index}.txt")
-
-
-    #def _save_losses(self, index: int, losses: List) -> str:
-    #    """Save the losses to a json file.
-
-    #    Args:
-    #        index: See _save_model_version.
-    #        losses: List of loss values for all forward passes that have been done since the losses
-    #                were last saved.
-    #    """
-    #    json_dict = {
-    #        # Why do we need to store this?
-    #        "batches_to_accumulate": self._batches_to_accumulate,
-    #        "losses": losses
-    #    }
-    #    json_object = json.dumps(json_dict)
-    #    path = self._loss_dump_path(index)
-    #    with open(path, "w") as f:
-    #        f.write(json_object)
-    #    return path
-
-
     def list_checkpoints(self) -> List[str]:
         """Return a list of all saved models in historical order.
 
         The last entry in the list is the latest stored model, the first is the oldest.
         """
-        contents = os.listdir(self._checkpoint_dir)
-        checkpoints = [os.path.join(self._checkpoint_dir, f) for f in contents if self._model_name in f]
-        numbered_checkpoints = [(_extract_model_iteration(f), f) for f in checkpoints]
-        checkpoints = [m for i, m in sorted(numbered_checkpoints, key=lambda x: x[0])]
-        return checkpoints
-
+        return _list_and_sort_indexed_files(self._checkpoint_dir, CHECKPOINT)
 
     def latest_checkpoint(self) -> str:
         checkpoints = self.list_checkpoints()
         assert len(checkpoints), "No valid checkpoints are available in {self._checkpoint_dir}."
         return self.list_checkpoints()[-1]
-
 
     def load_latest_checkpoint(self, model, optimizer=None, grad_scaler=None):
         if optimizer:
@@ -130,7 +119,6 @@ class CheckpointHandler:
             return _load_model_and_optimizer(self.latest_checkpoint(), model, optimizer, grad_scaler)
         assert not grad_scaler, "No grad scaler can be loaded if no optimizer is loaded."
         return _load_model(self.latest_checkpoint(), model)
-
 
     def _delete_old_checkpoints(self) -> None:
         checkpoints = self.list_checkpoints()
@@ -141,10 +129,71 @@ class CheckpointHandler:
             os.remove(f)
 
     def save_new_checkpoint(self, model, optimizer, grad_scaler):
-        checkpoints = self.list_checkpoints()
-        if not len(checkpoints):
-            new_index = 0
-        else:
-            new_index = _extract_model_iteration(self.latest_checkpoint()) + 1
+        new_index = _max_index(self._checkpoint_dir, CHECKPOINT) + 1
         self._save_checkpoint(model, optimizer, grad_scaler, new_index)
         self._delete_old_checkpoints()
+
+
+
+class LossDumper:
+
+    # TODO It seems that a superclass with CheckpointHandler might simplify it further.
+    def __init__(self, output_dir, model_name, silent=False):
+        self._output_dir = output_dir
+        self._model_name = model_name
+        self._silent = silent
+
+    def _loss_dump_path(self, index: int) -> str:
+        return os.path.join(self._output_dir, f"{self._model_name}_{LOSS_DUMP}_{index}.json")
+
+    def save_new_losses(self, losses: List, accumulation_steps: List) -> str:
+        """Save the losses to a json file.
+
+        Args:
+            losses: List of loss values for all forward passes that have been done since the losses
+                    were last saved.
+            accumulation_steps: Gradient accumulation is used. For each loss we should keep track
+                                of the accumulation number.
+        """
+        assert(sorted(accumulation_steps) == accumulation_steps), "Accumulation steps must monotomically increase."
+        json_dict = {
+            LOSS_KEY: losses,
+            ACCUMULATION_STEPS_KEY: accumulation_steps,
+        }
+        json_object = json.dumps(json_dict)
+
+        # TODO: This is using a dirty side effect and secretly ties calling loss saving to
+        # checkpoint saving.
+        iteration_index = _max_index(self._output_dir, LOSS_DUMP)
+        path = self._loss_dump_path(iteration_index, index)
+        if not self._silent:
+            print(f"Saving losses to path {path}")
+        with open(path, "w") as f:
+            f.write(json_object)
+        return path
+
+    def load_all_losses(self) -> List:
+        """Load and stitch together all loss dumps up to this point."""
+        iteration_index = _max_index(self._output_dir, LOSS_DUMP)
+        loss_paths = [self._loss_dump_path(i) for i in range(iteration_index + 1)]
+        assert all(os.path.isfile(f) for f in loss_paths), f"All loss files up to iteration {iteration_index} must exist."
+
+        total_loss_dict = {
+            LOSS_KEY: [],
+            ACCUMULATION_STEPS_KEY: []
+        }
+        for lp in loss_paths:
+            with open(lp) as f:
+                parial_loss_dict = json.load()
+            total_loss_dict[LOSS_KEY].append(parial_loss_dict[LOSS_KEY])
+            total_loss_dict[ACCUMULATION_STEPS_KEY].append(parial_loss_dict[ACCUMULATION_STEPS_KEY])
+        return total_loss_dict
+
+
+def average_per_accumulation(loss_dict) -> List:
+    losses = loss_dict[LOSS_KEY]
+    steps = loss_dict[ACCUMULATION_STEPS_KEY]
+    avg_losses = []
+    for step in set(steps):
+        avg_losses.append(float(np.mean([l for l, s in zip(losses, steps) if s == step])))
+    return np.array(avg_losses) 

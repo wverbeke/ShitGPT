@@ -4,7 +4,7 @@ from torch import nn
 
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from model_checkpoints import CheckpointHandler
+from model_checkpoints import CheckpointHandler, CHECKPOINT
 from constants import DEVICE
 
 TEST_OUTPUT_DIR = "checkpoint_tests"
@@ -66,18 +66,25 @@ class TestCPHandler:
             o, s = optimizer_and_scaler(m)
             self._cp_handler.save_new_checkpoint(m, o, s)
 
+    def store_random_losses(self, num_shards):
+        for _ in range(num_shards):
+
+            # Also store models to have consistent iteration numbers
+            m = toy_model()
+
+
     def test_checkpoint_paths(self):
         """Verify that 20 models are stored with the correct paths."""
         # First store 20 checkpoints without overflow.
         clean_directory()
         self.store_random_models(MAX_NUM_CHECKPOINTS)
-        test_paths = [os.path.join(TEST_OUTPUT_DIR, TEST_NAME) + f"_{i}.pth" for i in range(MAX_NUM_CHECKPOINTS)]
+        test_paths = [os.path.join(TEST_OUTPUT_DIR, TEST_NAME) + f"_{CHECKPOINT}_{i}.pth" for i in range(MAX_NUM_CHECKPOINTS)]
         assert all(a == b for a, b in zip(self._cp_handler.list_checkpoints(), test_paths)), "Some checkpoint paths have the wrong name."
         clean_directory()
 
         # Now try again with more checkpoints than the maximum amount that is stored.
         self.store_random_models(MAX_NUM_CHECKPOINTS*2)
-        test_paths = [os.path.join(TEST_OUTPUT_DIR, TEST_NAME) + f"_{i}.pth" for i in range(MAX_NUM_CHECKPOINTS, MAX_NUM_CHECKPOINTS*2)]
+        test_paths = [os.path.join(TEST_OUTPUT_DIR, TEST_NAME) + f"_{CHECKPOINT}_{i}.pth" for i in range(MAX_NUM_CHECKPOINTS, MAX_NUM_CHECKPOINTS*2)]
         assert all(a == b for a, b in zip(self._cp_handler.list_checkpoints(), test_paths)), "Some checkpoint paths have the wrong name."
         clean_directory()
         print("Test of checkpoint paths successful.")
@@ -111,6 +118,10 @@ class TestCPHandler:
 
         clean_directory()
         print("Test of loaded model and optimizer weights successful.")
+
+    def test_loss_saving(self):
+        pass
+
 
 
 
