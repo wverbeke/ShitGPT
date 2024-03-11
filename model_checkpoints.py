@@ -4,8 +4,9 @@ import torch
 
 MODEL_KEY = "model"
 OPTIMIZER_KEY = "optimizer"
+GRAD_SCALER_KEY = "grad_scaler"
 
-def _save_model_and_optimizer(model, optimizer, path: str) -> None:
+def _save_model_and_optimizer(model, optimizer, grad_scaler, path: str) -> None:
      """Save a model and associated optimizer states.
 
      Args:
@@ -14,14 +15,16 @@ def _save_model_and_optimizer(model, optimizer, path: str) -> None:
      checkpoint = {
          MODEL_KEY: model.state_dict(),
          OPTIMIZER_KEY: optimizer.state_dict(),
+         GRAD_SCALER_KEY: grad_scaler.state_dict(),
      }
      torch.save(checkpoint, path)
 
 
-def _load_model_and_optimizer(checkpoint_path, model, optimizer):
+def _load_model_and_optimizer(checkpoint_path, model, optimizer, grad_scaler):
     checkpoint = torch.load(checkpoint_path)
     model.load_state_dict(checkpoint[MODEL_KEY])
     optimizer.load_state_dict(checkpoint[OPTIMIZER_KEY])
+    grad_scaler.load_state_dict(checkpoint[GRAD_SCALER_KEY])
     return model, optimizer
 
 
@@ -64,7 +67,7 @@ class CheckpointHandler:
 
 
     # Maybe this function is superfluous
-    def _save_checkpoint(self, model, optimizer, index: int) -> str:
+    def _save_checkpoint(self, model, optimizer, grad_scaler, index: int) -> str:
         """Save a version of the model.
 
         Args:
@@ -75,7 +78,7 @@ class CheckpointHandler:
         path = self._new_checkpoint_path(index=index)
         if not self._silent:
             print(f"Saving model to {path}.")
-        _save_model_and_optimizer(model, optimizer, path)
+        _save_model_and_optimizer(model, optimizer, grad_scaler, path)
         return path
 
 
@@ -121,9 +124,11 @@ class CheckpointHandler:
         return self.list_checkpoints()[-1]
 
 
-    def load_latest_checkpoint(self, model, optimizer=None):
+    def load_latest_checkpoint(self, model, optimizer=None, grad_scaler=None):
         if optimizer:
-            return _load_model_and_optimizer(self.latest_checkpoint(), model, optimizer)
+            assert grad_scaler, "Grad scaler must be loaded if an optimizer is loaded."
+            return _load_model_and_optimizer(self.latest_checkpoint(), model, optimizer, grad_scaler)
+        assert not grad_scaler, "No grad scaler can be loaded if no optimizer is loaded."
         return _load_model(self.latest_checkpoint(), model)
 
 
@@ -135,11 +140,11 @@ class CheckpointHandler:
         for f in to_delete:
             os.remove(f)
 
-    def save_new_checkpoint(self, model, optimizer):
+    def save_new_checkpoint(self, model, optimizer, grad_scaler):
         checkpoints = self.list_checkpoints()
         if not len(checkpoints):
             new_index = 0
         else:
             new_index = _extract_model_iteration(self.latest_checkpoint()) + 1
-        self._save_checkpoint(model, optimizer, new_index)
+        self._save_checkpoint(model, optimizer, grad_scaler, new_index)
         self._delete_old_checkpoints()

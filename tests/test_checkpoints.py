@@ -5,6 +5,7 @@ from torch import nn
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from model_checkpoints import CheckpointHandler
+from constants import DEVICE
 
 TEST_OUTPUT_DIR = "checkpoint_tests"
 TEST_NAME = "test_model"
@@ -18,19 +19,23 @@ def toy_model():
         model.append(nn.ReLU())
     return model
 
-def optimizer(model):
+def optimizer_and_scaler(model):
     o = torch.optim.Adam(model.parameters())
+    s = torch.cuda.amp.GradScaler()
 
     # Do an optimizer step so it has real parameters.
     targets = torch.rand(DIM)
 
     # Do a factor 1000 here so the optimizer weights are not tiny, which would break torch.allclose.
-    loss = nn.functional.mse_loss(model(targets), targets*1000)
-    loss.backward()
-    o.step()
+    with torch.autocast(device_type=DEVICE, dtype=torch.float16):
+        loss = nn.functional.mse_loss(model(targets), targets*1000)
+    s.scale(loss).backward()
+
+    s.step(o)
+    s.update()
     o.zero_grad()
 
-    return o
+    return o, s
 
 
 def clean_directory():
@@ -58,8 +63,8 @@ class TestCPHandler:
     def store_random_models(self, num_models):
         for _ in range(num_models):
             m = toy_model()
-            o = optimizer(m)
-            self._cp_handler.save_new_checkpoint(m, o)
+            o, s = optimizer_and_scaler(m)
+            self._cp_handler.save_new_checkpoint(m, o, s)
 
     def test_checkpoint_paths(self):
         """Verify that 20 models are stored with the correct paths."""
@@ -80,20 +85,19 @@ class TestCPHandler:
 
     def test_stored_weights(self):
         original_m = toy_model()
-        original_o = optimizer(original_m)
+        original_o, original_s = optimizer_and_scaler(original_m)
 
-        self._cp_handler.save_new_checkpoint(original_m, original_o)
-        
+        self._cp_handler.save_new_checkpoint(original_m, original_o, original_s)
+
         loaded_m = toy_model()
-        loaded_o = optimizer(loaded_m)
-        self._cp_handler.load_latest_checkpoint(loaded_m, loaded_o)
+        loaded_o, loaded_s = optimizer_and_scaler(loaded_m)
+        self._cp_handler.load_latest_checkpoint(loaded_m, loaded_o, loaded_s)
         
         compare_models(original_m, loaded_m)
         compare_optimizers(original_o, loaded_o)
-
     
         random_m = toy_model()
-        random_o = optimizer(random_m)
+        random_o, random_s = optimizer_and_scaler(random_m)
         for original, random in zip(original_m.parameters(), random_m.parameters()):
             assert not torch.allclose(original.data, random.data), "Original and random model should not have the same weights."
 
