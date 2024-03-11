@@ -1,16 +1,19 @@
 """Test the CheckpointHandler class."""
 import torch
 from torch import nn
+import numpy as np
 
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from model_checkpoints import CheckpointHandler, CHECKPOINT
+from model_checkpoints import CheckpointHandler, LossDumper, average_loss_per_accumulation, CHECKPOINT
 from constants import DEVICE
 
 TEST_OUTPUT_DIR = "checkpoint_tests"
 TEST_NAME = "test_model"
 MAX_NUM_CHECKPOINTS = 20
 DIM = 20
+LOSSES_PER_SHARD=100
+ACCUMULATIONS=10
 
 def toy_model():
     model = nn.Sequential()
@@ -36,6 +39,16 @@ def optimizer_and_scaler(model):
     o.zero_grad()
 
     return o, s
+
+
+def random_losses():
+    assert LOSSES_PER_SHARD % ACCUMULATIONS == 0, "For testing we assume the number of losses per shard is divisible by the number of accumulations."
+    losses = []
+    accumulations = []
+    for i in range(LOSSES_PER_SHARD//ACCUMULATIONS):
+        losses += [n for n in np.random.randn(ACCUMULATIONS)]
+        accumulations += [i]*ACCUMULATIONS
+    return losses, accumulations
 
 
 def clean_directory():
@@ -65,13 +78,6 @@ class TestCPHandler:
             m = toy_model()
             o, s = optimizer_and_scaler(m)
             self._cp_handler.save_new_checkpoint(m, o, s)
-
-    def store_random_losses(self, num_shards):
-        for _ in range(num_shards):
-
-            # Also store models to have consistent iteration numbers
-            m = toy_model()
-
 
     def test_checkpoint_paths(self):
         """Verify that 20 models are stored with the correct paths."""
@@ -119,21 +125,57 @@ class TestCPHandler:
         clean_directory()
         print("Test of loaded model and optimizer weights successful.")
 
-    def test_loss_saving(self):
-        pass
+def test_loss_saving(loss_dumper):
+    total_l = []
+    total_a = []
+    for i in range(20):
+        l, a = random_losses()
+        loss_dumper.save_new_losses(l, a)
+        total_l += l
+        total_a += a
+    loaded_l, loaded_a = loss_dumper.load_all_losses()
+    assert len(total_l) == len(loaded_l), f"Found {len(loaded_l)} loaded loss shards when {len(total_l)} were generated."
+    assert np.allclose(np.array(total_l), np.array(loaded_l))
+    assert total_a == loaded_a
+    #print(loaded_a)
 
+    avg_per_acc = average_loss_per_accumulation(loaded_l, loaded_a)
+    cross_check = []
+
+    # Uglier code to cross check loss averaging.
+    for a in set(total_a):
+        avg = 0
+        count = 0
+        for s, l in zip(total_a, total_l):
+            if s != a:
+                continue
+            avg += total_l[i]
+            count += 1
+        print(avg)
+        avg = avg/count if abs(avg) > 0 else 0
+        cross_check.append(avg) 
+    print("xc = ", cross_check)
+    print("a = ", avg_per_acc)
+    assert np.allclose(np.array(cross_check), np.array(avg_per_acc)), "Losses averaged per accumulation are not equal to cross check."
+                
+    clean_directory()
+    print("Test of loss dumper successful.")
+
+        
 
 
 
 if __name__ == "__main__":
     os.makedirs(TEST_OUTPUT_DIR, exist_ok=True)
 
-    ch = CheckpointHandler(TEST_OUTPUT_DIR, "test_model", MAX_NUM_CHECKPOINTS, silent=True)
+    ch = CheckpointHandler(TEST_OUTPUT_DIR, TEST_NAME, MAX_NUM_CHECKPOINTS, silent=True)
     test_ch = TestCPHandler(ch)
 
     # TODO, this could be more neatly wrapped.
     try:
         test_ch.test_checkpoint_paths()
+
+    # TODO: This doesn't clean up the empty directory at the end.
     except AssertionError as err:
         clean_directory()
         raise err 
@@ -143,5 +185,12 @@ if __name__ == "__main__":
     except AssertionError as err:
         clean_directory()
         raise err 
+
+    ld = LossDumper(TEST_OUTPUT_DIR, TEST_NAME, silent=True)
+    try:
+        test_loss_saving(ld)
+    except AssertionError as err:
+        clean_directory()
+        raise err
 
     os.rmdir(TEST_OUTPUT_DIR)

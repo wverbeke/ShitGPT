@@ -1,6 +1,8 @@
 import os
-from typing import List 
+from typing import List, Tuple
 import torch
+import json
+import numpy as np
 
 MODEL_KEY = "model"
 OPTIMIZER_KEY = "optimizer"
@@ -164,36 +166,32 @@ class LossDumper:
 
         # TODO: This is using a dirty side effect and secretly ties calling loss saving to
         # checkpoint saving.
-        iteration_index = _max_index(self._output_dir, LOSS_DUMP)
-        path = self._loss_dump_path(iteration_index, index)
+        iteration_index = _max_index(self._output_dir, LOSS_DUMP) + 1
+        path = self._loss_dump_path(iteration_index)
         if not self._silent:
             print(f"Saving losses to path {path}")
         with open(path, "w") as f:
             f.write(json_object)
         return path
 
-    def load_all_losses(self) -> List:
+    def load_all_losses(self) -> Tuple[List, List]:
         """Load and stitch together all loss dumps up to this point."""
         iteration_index = _max_index(self._output_dir, LOSS_DUMP)
         loss_paths = [self._loss_dump_path(i) for i in range(iteration_index + 1)]
         assert all(os.path.isfile(f) for f in loss_paths), f"All loss files up to iteration {iteration_index} must exist."
 
-        total_loss_dict = {
-            LOSS_KEY: [],
-            ACCUMULATION_STEPS_KEY: []
-        }
+        total_losses = []
+        total_accumulations = []
         for lp in loss_paths:
             with open(lp) as f:
-                parial_loss_dict = json.load()
-            total_loss_dict[LOSS_KEY].append(parial_loss_dict[LOSS_KEY])
-            total_loss_dict[ACCUMULATION_STEPS_KEY].append(parial_loss_dict[ACCUMULATION_STEPS_KEY])
-        return total_loss_dict
+                parial_loss_dict = json.load(f)
+            total_losses += parial_loss_dict[LOSS_KEY]
+            total_accumulations += parial_loss_dict[ACCUMULATION_STEPS_KEY]
+        return total_losses, total_accumulations
 
 
-def average_per_accumulation(loss_dict) -> List:
-    losses = loss_dict[LOSS_KEY]
-    steps = loss_dict[ACCUMULATION_STEPS_KEY]
+def average_loss_per_accumulation(losses, accumulation_steps) -> List:
     avg_losses = []
-    for step in set(steps):
-        avg_losses.append(float(np.mean([l for l, s in zip(losses, steps) if s == step])))
+    for step in set(accumulation_steps):
+        avg_losses.append(float(np.mean([l for l, s in zip(losses, accumulation_steps) if s == step])))
     return np.array(avg_losses) 
