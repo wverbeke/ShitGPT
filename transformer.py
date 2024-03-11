@@ -3,8 +3,6 @@ import torch
 import math
 from torch import nn
 
-from constants import DEVICE_GPU
-
 class CausalSelfAttention(nn.Module):
     """Naive implementation of multi-head self-attention in a transformer decoder.
 
@@ -199,16 +197,19 @@ class TransformerModel(nn.Module):
         # 1/sqrt(N) where N is the number of residual layers."
         for pn, p in self.named_parameters():
             if pn.endswith('_out_transf.weight') or pn.endswith("_linear_2.weight"):
+                # Factor 2 here because each transformer block has one attention and one feedforward
+                # block, while n_layers is the number of transformer blocks.
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * n_layers))
 
 
-    def context_window(self):
-        return self._context_window
+    # TODO Do we need this?
+    #def context_window(self):
+    #    return self._context_window
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
         tokens = self._embed(x)
-        pos = self._positional_encoder(torch.arange(x.shape[1], device=DEVICE_GPU).unsqueeze(0))
+        pos = self._positional_encoder(torch.arange(x.shape[1], device=tokens.device).unsqueeze(0))
         x = self._transformer_blocks(tokens + pos)
         return self._head(_ln(x))
 
