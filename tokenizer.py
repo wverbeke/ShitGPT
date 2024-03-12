@@ -12,6 +12,8 @@ import torch
 import numpy as np
 import tiktoken
 
+END_OF_TEXT = "<|endoftext|>"
+
 
 class TokenizerBase(abc.ABC):
     """Tokenizer interface."""
@@ -85,7 +87,8 @@ class GPT2BPETokenizer(TokenizerBase):
         return self._tokenizer.n_vocab
 
     def encode(self, text):
-        return self._tokenizer.encode(text)
+        # Make sure endoftext is a single tokem.
+        return self._tokenizer.encode(text, allowed_special={END_OF_TEXT})
 
     def decode(self, tokens):
         # The decode method in the official tokenizer does not work for torch tensors.
@@ -97,7 +100,7 @@ class GPT2BPETokenizer(TokenizerBase):
 
 if __name__ == "__main__":
     # Some simple testing of the tokenizers.
-    test_sentence = "A transformer is a deep learning model. It is distinguished by its adoption of self-attention, differentially weighting the significance of each part of the input (which includes the recursive output) data."
+    test_sentence = "A transformer is a deep learning model. It is distinguished by its adoption of self-attention, differentially weighting the significance of each part of the input (which includes the recursive output) data. <|endoftext|>"
     err_msg = "Sentence must remain identical after encoding and decoding."
 
     char_tokenizer = CharTokenizer(text=test_sentence)
@@ -106,5 +109,7 @@ if __name__ == "__main__":
     gpt2_tokenizer = GPT2BPETokenizer()
     assert gpt2_tokenizer.decode(gpt2_tokenizer.encode(test_sentence)) == test_sentence, err_msg
 
+    # Ensure that endoftext is a single token.
+    assert(len(gpt2_tokenizer.encode(END_OF_TEXT)) == 1), f"{END_OF_TEXT} must be encoded as a single token by the GPT2 tokenizer."
 
     print("SUCCESS.")
