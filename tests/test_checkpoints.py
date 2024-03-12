@@ -141,7 +141,14 @@ def test_loss_saving(loss_dumper):
     # Test the loss accumulation with hardcoded values.
     l = [r for r in np.random.randn(13)]
     a = [0, 0, 1, 1, 1, 2, 2, 1, 1, 0, 0, 3, 3]
-    cross_check = [sum(l[0:2]), sum(l[2:5]), sum(l[5:7]), sum(l[7:9]), sum(l[10:12]), sum(l[12:])]
+    cross_check = [sum(l[0:2])/2, sum(l[2:5])/3, sum(l[5:7])/2, sum(l[7:9])/2, sum(l[9:11])/2, sum(l[11:])/2]
+    avg_per_acc = average_loss_per_accumulation(l, a)
+    assert np.allclose(np.array(cross_check), np.array(avg_per_acc)), "Losses averaged per accumulation are not equal to cross check."
+
+    # Another test case.
+    l = [r for r in np.random.randn(13)]
+    a = [0, 1, 1, 1, 1, 1, 4, 4, 4, 4, 4, 4, 3]
+    cross_check = [l[0], sum(l[1:6])/5, sum(l[6:12])/6, l[12]]
     avg_per_acc = average_loss_per_accumulation(l, a)
     assert np.allclose(np.array(cross_check), np.array(avg_per_acc)), "Losses averaged per accumulation are not equal to cross check."
                 

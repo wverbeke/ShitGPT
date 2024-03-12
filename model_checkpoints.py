@@ -190,21 +190,22 @@ class LossDumper:
         return total_losses, total_accumulations
 
 
+# TODO: This function is messy and unvectorized. Can it be improved?
 def average_loss_per_accumulation(losses, accumulation_steps) -> List:
     # Care must be taken with the accumulations, they are not monotomic when all losses are
     # aggregated and indices can be repeated. We want to process them chunk by chunk.
-    avg_losses = []
-    for step in set(accumulation_steps):
-        max_i = 0
-        for i, (l, s) in enumerate(zip(losses, accumulation_steps)):
-            if s == step:
-                avg_losses.append(l)
-                max_i = i
-            else:
-                break
-        losses = losses[max_i:]
-        accumulation_steps = accumulation_steps[max_i:]
-
-        # TODO Make this mean numerically stable.
-        avg_losses.append(sum(losses)/len(losses))
-    return np.array(avg_losses) 
+    avg_losses = [losses[0]]
+    current_step = accumulation_steps[0]
+    steps = 1
+    for l, s in zip(losses[1:], accumulation_steps[1:]):
+        if s == current_step:
+            avg_losses[-1] += l
+            steps += 1
+        else:
+            avg_losses[-1] /= steps
+            avg_losses.append(l)
+            steps = 1
+            current_step = s
+    if steps > 1:
+        avg_losses[-1] /= steps
+    return avg_losses
