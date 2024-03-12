@@ -137,25 +137,12 @@ def test_loss_saving(loss_dumper):
     assert len(total_l) == len(loaded_l), f"Found {len(loaded_l)} loaded loss shards when {len(total_l)} were generated."
     assert np.allclose(np.array(total_l), np.array(loaded_l))
     assert total_a == loaded_a
-    #print(loaded_a)
 
-    avg_per_acc = average_loss_per_accumulation(loaded_l, loaded_a)
-    cross_check = []
-
-    # Uglier code to cross check loss averaging.
-    for a in set(total_a):
-        avg = 0
-        count = 0
-        for s, l in zip(total_a, total_l):
-            if s != a:
-                continue
-            avg += total_l[i]
-            count += 1
-        print(avg)
-        avg = avg/count if abs(avg) > 0 else 0
-        cross_check.append(avg) 
-    print("xc = ", cross_check)
-    print("a = ", avg_per_acc)
+    # Test the loss accumulation with hardcoded values.
+    l = [r for r in np.random.randn(13)]
+    a = [0, 0, 1, 1, 1, 2, 2, 1, 1, 0, 0, 3, 3]
+    cross_check = [sum(l[0:2]), sum(l[2:5]), sum(l[5:7]), sum(l[7:9]), sum(l[10:12]), sum(l[12:])]
+    avg_per_acc = average_loss_per_accumulation(l, a)
     assert np.allclose(np.array(cross_check), np.array(avg_per_acc)), "Losses averaged per accumulation are not equal to cross check."
                 
     clean_directory()

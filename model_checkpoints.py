@@ -191,7 +191,20 @@ class LossDumper:
 
 
 def average_loss_per_accumulation(losses, accumulation_steps) -> List:
+    # Care must be taken with the accumulations, they are not monotomic when all losses are
+    # aggregated and indices can be repeated. We want to process them chunk by chunk.
     avg_losses = []
     for step in set(accumulation_steps):
-        avg_losses.append(float(np.mean([l for l, s in zip(losses, accumulation_steps) if s == step])))
+        max_i = 0
+        for i, (l, s) in enumerate(zip(losses, accumulation_steps)):
+            if s == step:
+                avg_losses.append(l)
+                max_i = i
+            else:
+                break
+        losses = losses[max_i:]
+        accumulation_steps = accumulation_steps[max_i:]
+
+        # TODO Make this mean numerically stable.
+        avg_losses.append(sum(losses)/len(losses))
     return np.array(avg_losses) 
