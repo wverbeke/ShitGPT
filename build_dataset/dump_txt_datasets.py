@@ -17,21 +17,32 @@ def get_datasets():
     }
 
 
+def process_wikipedia_page(text):
+    """Remove references at the end of page."""
+    text = text.strip()
+    if text.endswith("References"):
+        text = text[:-len("References")]
+    text = text.strip()
+    text += END_OF_TEXT
+    return text
+
+
 
 def dump_dataset(dataset, name):
+    print(dataset)
     dataset = dataset["train"]
     output_path = os.path.join(TXT_DATASET_DIR, f"{name}.txt")
-    print(f"Writing {name} to file {output_path}.")
     with open(output_path, "w") as f:
         for d in tqdm(dataset):
             d = d["text"]
             f.write(d + END_OF_TEXT)
 
 
-def dump_all_datasets(dataset, name):
-    for k, v in get_datasets():
-        dump_dataset(k, v)
+def dump_all_datasets():
+    for k, v in get_datasets().items():
+        dump_dataset(v, k)
 
 
 if __name__ == "__main__":
+    os.makedirs(TXT_DATASET_DIR, exist_ok=True)
     dump_all_datasets()
