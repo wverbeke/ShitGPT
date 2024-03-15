@@ -26,6 +26,7 @@ from typing import Iterable
 
 import torch
 import numpy as np
+import random
 
 from tokenizer import TokenizerBase, GPT2BPETokenizer
 
@@ -87,6 +88,7 @@ class PreEncodedDataset(TextDataset):
         arrays = []
         for p in binary_file_paths:
             if not p.endswith(".npy"): 
+                continue
                 raise ValueError("Expect numpy binary files to have .npy extension.")
             arrays.append(np.load(p))
 
@@ -112,3 +114,32 @@ class PreEncodedDataset(TextDataset):
         y = torch.from_numpy(self._text_tensor[index+1:end_index+1].astype(np.int64))
         return x, y
 
+
+def infinite_dataloader(dataloader):
+    """Wrap a dataloader to become infinite.
+
+    This is convenient if we want to iterate a number of steps that is not directly related to the
+    size of our dataset.
+    """
+    i = iter(dataloader)
+    while True:
+        try:
+            yield next(i)
+        except StopIteration:
+            i = iter(dataloader)
+            yield next(i)
+
+
+def data_loader(dataset, batch_size):
+    """Build a data loader.
+
+    Pytorch stores all possible sampling indexes in memory. This will cause an OOM error even with
+    a ridiculous amount of CPU RAM memory just because the amount of possible sampling positions is
+    so large. We have to override the pytorch sampling and do simple sampling with replacement.
+    """
+    def _sample_index():
+        while True:
+            yield random.randint(0, len(dataset))
+
+    # We can do a huge amount of prefetching since text data is so small.
+    return infinite_dataloader(torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=_sample_index(), prefetch_factor=100, num_workers=24, pin_memory=True))

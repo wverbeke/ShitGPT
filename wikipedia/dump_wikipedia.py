@@ -4,6 +4,7 @@ from html2text import html2text
 import wikitextparser as wtp
 import urllib.request
 from tqdm import tqdm
+import progressbar
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,16 +13,31 @@ from tokenizer import END_OF_TEXT
 WIKI_EN_URL = "https://dumps.wikimedia.org/enwiki/20231201/enwiki-20231201-pages-articles-multistream.xml.bz2"
 WIKI_SIMPLE_URL = "https://dumps.wikimedia.org/simplewiki/20231020/simplewiki-20231020-pages-meta-current.xml.bz2"
 
+class MyProgressBar():
+    def __init__(self):
+        self.pbar = None
 
-def download_path(url):
+    def __call__(self, block_num, block_size, total_size):
+        if not self.pbar:
+            self.pbar=progressbar.ProgressBar(maxval=total_size)
+            self.pbar.start()
+
+        downloaded = block_num * block_size
+        if downloaded < total_size:
+            self.pbar.update(downloaded)
+        else:
+            self.pbar.finish()
+
+
+def _download_path(url):
     current_dir = os.path.abspath(os.path.dirname(__file__))
     out_name = url.split("/")[-1]
-    out_path = os.path.join(current_dir, out_path)
+    out_path = os.path.join(current_dir, out_name)
     return out_path
 
 def download(url):
-    urllib.request.urlretrieve(url, download_path(url))
-
+    #urllib.request.urlretrieve(url, _download_path(url), MyProgressBar())
+    return _download_path(url)
 
 def unpack(file_path):
     assert file_path.endswith(".bz2"), "Expected to unpack a .bz2 file."
@@ -105,6 +121,14 @@ def process_wikipedia_xml(xml_path, output_path):
             body = get_body(p)
             f.write(f"{title}\n{body}{END_OF_TEXT}")
 
+def main():
+    en_wiki_path = "enwiki-20231201-pages-articles-multistream.xml"
+    process_wikipedia_xml(en_wiki_path, "wiki_en.txt")
+
+    simple_wiki_path = download(WIKI_SIMPLE_URL)
+    process_wikipedia_xml(simple_wiki_path, "wiki_simple.txt")
+
+
 
 if __name__ == "__main__":
-    process_wikipedia_xml("/home/willem/Downloads/simplewiki-20231020-pages-meta-current.xml", "dump.txt")
+    main()

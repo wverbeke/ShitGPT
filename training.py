@@ -150,38 +150,28 @@ class ModelTrainer:
                                            or not. This checkpoint will be automatically found in
                                            the appropriate directory.
         """
-        if continue_from_checkpoint:
-            print(f"Restoring model {self._cp_handler.latest_checkpoint()}")
-            self._cp_handler.load_latest_checkpoint(self._model, self._optimizer)
+        if continue_from_last_checkpoint:
+            try:
+                print(f"Restoring model {self._cp_handler.latest_checkpoint()}")
+                self._cp_handler.load_latest_checkpoint(self._model, self._optimizer, self._scaler)
+            except AssertionError:
+                print(f"Warning: No checkpoint to restore. Training from scratch.")
 
 
         save_index = 0
         losses = []
         for i, (x_batch, y_batch) in tqdm(enumerate(self._dloader)):
+
+            # Training ends
             if i >= num_steps:
-                self._cp_handler.save_new_checkpoint(self._model, self._optimizer)
+                self._cp_handler.save_new_checkpoint(self._model, self._optimizer, self._scaler)
                 return 
 
             # Do a train step. This will do gradient updates when enough batches are accumulated.
-            loss = self.train_step(x_batch, y_batch)
+            loss = self._train_step(x_batch, y_batch)
             losses.append(loss)
 
             if (i % save_every_x_steps == 0) and (i > 0):
-                self._cp_handler.save_new_checkpoint(self._model, self._optimizer)
+                self._cp_handler.save_new_checkpoint(self._model, self._optimizer, self._scaler)
                 self._l_dumper.save_new_losses(losses, [self._update_step]*len(losses))
                 losses = []
-
-
-def infinite_dataloader(dataloader):
-    """Wrap a dataloader to become infinite.
-
-    This is convenient if we want to iterate a number of steps that is not directly related to the
-    size of our dataset.
-    """
-    i = iter(dataloader)
-    while True:
-        try:
-            yield next(i)
-        except StopIteration:
-            i = iter(dataloader)
-            yield next(i)

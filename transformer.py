@@ -221,7 +221,7 @@ class GPT1Model(TransformerModel):
     we do, but the current placement is better if you want the model to converge.
     """
     def __init__(self, vocab_size: int, context_window: int):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=12, n_heads=12, dim=768, dropout_p=0.1)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=12, n_heads=12, dim=768, expansion_factor=4, dropout_p=0.0)
 
 
 class GPT2SModel(GPT1Model):
@@ -237,17 +237,21 @@ class GPT2MModel(TransformerModel):
     dimensionality of the transformer. This is never clearly defined in the papers.
     """
     def __init__(self, vocab_size, context_window):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=24, n_heads=16, dim=1024, dropout_p=0.1)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=24, n_heads=16, dim=1024, expansion_factor=4, dropout_p=0.0)
 
 
 
 class GPT2LModel(TransformerModel):
     """GPT 2 Large model."""
     def __init__(self, vocab_size, context_window):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=36, n_heads=20, dim=1280, dropout_p=0.1)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=36, n_heads=20, dim=1280, expansion_factor=4, dropout_p=0.0)
 
 
 class GPT2Model(TransformerModel):
     """GPT 2 XL model, also known as GPT 2."""
     def __init__(self, vocab_size, context_window):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=48, n_heads=25, dim=1600, dropout_p=0.1)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=48, n_heads=25, dim=1600, expansion_factor=4, dropout_p=0.0)
+
+class ShitGPT(TransformerModel):
+    def __init__(self, vocab_size, context_window):
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=60, n_heads=30, dim=1920, expansion_factor=4, dropout_p=0.0)

@@ -57,7 +57,7 @@ def _convert_txt_shards_to_binary(tokenizer: TokenizerBase, dir_path: str) -> No
     for i, f in enumerate(sorted(os.listdir(dir_path))):
         fp = os.path.join(dir_path, f)
         
-        with open(fp) as txt_file:
+        with open(fp, encoding="utf-8") as txt_file:
             array = np.array(tokenizer.encode(txt_file.read()), dtype=tokenizer.smallest_int_type())
 
         # Save the full encoded array as a numpy binary.
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     if not args.test:
         sys.exit()
 
-    with open(args.input_path) as f:
+    with open(args.input_path, encoding="utf-8") as f:
         original = f.read()
     decoded = tokenizer.decode(np.load(output_path))
     assert decoded == original, "Decoded and original text must be the same!"

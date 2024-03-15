@@ -1,14 +1,11 @@
 import os
-import random
-import sys
 import torch
 from tqdm import tqdm
-#from text_dataset import CharTokenizer, TextDataset, BPETokenizer
-from text_dataset import PreEncodedDataset
-#from bigram_model import BigramModel, generate_from_model
-from transformer import GPT1Model, GPT2Model
-from train_eval import ModelTrainer, infinite_dataloader
-from constants import DEVICE, DEVICE_CPU, DEVICE_GPU
+from text_dataset import PreEncodedDataset, data_loader
+from transformer import GPT2Model
+from constants import ENCODED_DATASET_DIR
+from model_checkpoints import CheckpointHandler, LossDumper
+from training import ModelTrainer
 
 
 def build_optimizer(model, weight_decay, lr, betas):
@@ -67,29 +64,50 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     torch.multiprocessing.set_sharing_strategy('file_system')
 
-    train_dset = PreEncodedDataset(context_window=1024)
-    dset_length = len(train_dset)
-    def sample_index():
-        while True:
-            yield random.randint(0, dset_length)
+    CONTEXT_WINDOW = 1024
+    BATCH_SIZE = 1
+    BATCHES_TO_ACCUMULATE=1024
+    CHECKPOINT_DIR = "checkpoints"
+    LOSS_OUT_DIR = "loss_dumps"
+    MODEL_NAME = "ShitGPT"
 
-    train_dloader = torch.utils.data.DataLoader(train_dset, batch_size=2, sampler=sample_index(), prefetch_factor=1000, num_workers=24, pin_memory=True) #24 for gpt 1
-    #infinite_train_dloader = infinite_dataloader(train_dloader)
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    os.makedirs(LOSS_OUT_DIR, exist_ok=True)
 
-    model = GPT2Model(train_dset.vocab_size(), window_size=1024)
-    model.to(DEVICE_GPU)
-    #optimizer = torch.optim.AdamW(model.parameters(), 3e-4)
+    # Data loading.
+    preproccesed_text_paths= (os.path.join(ENCODED_DATASET_DIR, f) for f in os.listdir(ENCODED_DATASET_DIR))
+    train_dset = PreEncodedDataset(binary_file_paths=preproccesed_text_paths, context_window=CONTEXT_WINDOW)
+    train_dloader = data_loader(train_dset, batch_size=BATCH_SIZE)
+
+    # Build model and optimizer.
+    model = GPT2Model(vocab_size=train_dset.vocab_size(), context_window=CONTEXT_WINDOW)
+    model = model.cuda()
     optimizer = build_optimizer(model, 1e-2, 3e-4, (0.9, 0.999))
 
-    def compute_loss(logits, targets):
-        B, T, C = logits.shape
-        logits = logits.view(B*T, C)
-        targets = targets.view(B*T)
-        return torch.nn.functional.cross_entropy(logits, targets)
+    # Checkpoint handling and loss dumping.
+    checkpoint_handler = CheckpointHandler(checkpoint_dir=CHECKPOINT_DIR, model_name=MODEL_NAME, max_checkpoints=10, silent=False)
+    loss_dumper = LossDumper(output_dir=LOSS_OUT_DIR, model_name=MODEL_NAME, silent=False)
+
+    # Orchestrator for the training.
+    model_trainer = ModelTrainer(model=model, optimizer=optimizer, dloader=train_dloader, checkpoint_handler=checkpoint_handler, loss_dumper=loss_dumper, batches_to_accumulate=BATCHES_TO_ACCUMULATE)
+    model_trainer.train_steps(num_steps=BATCHES_TO_ACCUMULATE*1e5, continue_from_last_checkpoint=True, save_every_x_steps=BATCHES_TO_ACCUMULATE*20)
+    
+    ##infinite_train_dloader = infinite_dataloader(train_dloader)
+
+    #model = GPT2Model(train_dset.vocab_size(), window_size=1024)
+    #model.to(DEVICE_GPU)
+    ##optimizer = torch.optim.AdamW(model.parameters(), 3e-4)
+    #optimizer = build_optimizer(model, 1e-2, 3e-4, (0.9, 0.999))
+
+    #def compute_loss(logits, targets):
+    #    B, T, C = logits.shape
+    #    logits = logits.view(B*T, C)
+    #    targets = targets.view(B*T)
+    #    return torch.nn.functional.cross_entropy(logits, targets)
 
 
 
-    #trainer = ModelTrainer(loss_fn=compute_loss, optimizer=optimizer, model=model, batches_to_accumulate=512)
-    trainer = ModelTrainer(loss_fn=compute_loss, optimizer=optimizer, model=model, batches_to_accumulate=256)
-    #trainer = ModelTrainer(loss_fn=compute_loss, optimizer=optimizer, model=model, batches_to_accumulate=100)
-    trainer.train_x_steps(train_dloader, 51200000, "saved_GPT_models", "model", True, 5120, 10)
+    ##trainer = ModelTrainer(loss_fn=compute_loss, optimizer=optimizer, model=model, batches_to_accumulate=512)
+    #trainer = ModelTrainer(loss_fn=compute_loss, optimizer=optimizer, model=model, batches_to_accumulate=256)
+    ##trainer = ModelTrainer(loss_fn=compute_loss, optimizer=optimizer, model=model, batches_to_accumulate=100)
+    #trainer.train_x_steps(train_dloader, 51200000, "saved_GPT_models", "model", True, 5120, 10)
