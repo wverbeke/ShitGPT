@@ -2,7 +2,7 @@ import os
 import torch
 from tqdm import tqdm
 from text_dataset import PreEncodedDataset, data_loader
-from transformer import GPT2Model
+from transformer import GPT2Model, ShitGPT
 from constants import ENCODED_DATASET_DIR
 from model_checkpoints import CheckpointHandler, LossDumper
 from training import ModelTrainer
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
     CONTEXT_WINDOW = 1024
     BATCH_SIZE = 1
-    BATCHES_TO_ACCUMULATE=1024
+    BATCHES_TO_ACCUMULATE=512
     CHECKPOINT_DIR = "checkpoints"
     LOSS_OUT_DIR = "loss_dumps"
     MODEL_NAME = "ShitGPT"
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     train_dloader = data_loader(train_dset, batch_size=BATCH_SIZE)
 
     # Build model and optimizer.
-    model = GPT2Model(vocab_size=train_dset.vocab_size(), context_window=CONTEXT_WINDOW)
+    model = ShitGPT(vocab_size=train_dset.vocab_size(), context_window=CONTEXT_WINDOW)
     model = model.cuda()
     optimizer = build_optimizer(model, 1e-2, 3e-4, (0.9, 0.999))
 

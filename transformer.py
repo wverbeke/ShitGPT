@@ -97,7 +97,7 @@ class CausalFlashSelfAttention(nn.Module):
 
 def _ln(x: torch.Tensor):
     """Making layernorm easier to call."""
-    return torch.nn.functional.layer_norm(x, x.shape[-1])
+    return torch.nn.functional.layer_norm(x, [x.shape[-1]])
 
 
 class TransformerBlock(nn.Module):
@@ -133,6 +133,7 @@ class TransformerBlock(nn.Module):
         def _do(x: torch.Tensor):
             """Dropout."""
             return torch.nn.functional.dropout(x, p=dropout_p, training=self.training)
+        self._do = _do
 
     def forward(self, x):
         """Forward pass."""
@@ -254,4 +255,4 @@ class GPT2Model(TransformerModel):
 
 class ShitGPT(TransformerModel):
     def __init__(self, vocab_size, context_window):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=60, n_heads=30, dim=1920, expansion_factor=4, dropout_p=0.0)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=54, n_heads=28, dim=1904, expansion_factor=4, dropout_p=0.0)

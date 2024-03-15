@@ -85,7 +85,8 @@ class ModelTrainer:
         Returns:
             Loss for the given batch and labels.
         """
-
+        x_batch = x_batch.cuda()
+        y_batch = y_batch.cuda()
         # Forward pass is run in fp16 for speedup.
         # Warning: Do not run the backward pass in fp16, this will result in divergences.
         with torch.autocast(device_type=DEVICE, dtype=torch.float16):
