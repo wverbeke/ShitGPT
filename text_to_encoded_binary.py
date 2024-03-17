@@ -17,7 +17,7 @@ def _parse_args():
     parser = argparse.ArgumentParser(description="Command line arguments for converting large txt files into numpy binaries. Currently the GPT2 tokenizer will always be used.")
     parser.add_argument("--input-path", type=str, help="Path to the txt file that will be converted to a binary.")
     parser.add_argument("--output-directory", type=str, required=True)
-    parser.add_argument("--n-shards", type=int, default=10, help="Number of shards the txt file is split in before conversion to binaries and subsequent merging. Python has a large memory overhead for strings, so for very large txt files a lot of shards might be needed during the conversion.")
+    parser.add_argument("--shard-size", type=int, default=10000000, help="Before making a large binary file with the entire encoded text, we write binary shards. The shard size specified the number of words being written. Python has a large memory overhead for strings, so this number can not be too large.")
     parser.add_argument("--test", action="store_true", help="Use to test whether the script is working. This will generate a binary, and decode it and check it is equal to the original text. Will not work for very large text files that do not fit into memory.")
     # TODO: Potentially add other tokenizers and appropriate data types for their resulting binaries.
 
@@ -41,36 +41,40 @@ def _clean_dir(path: str) -> None:
             os.remove(os.path.join(root, f))
     os.rmdir(path)
 
-def _shard_txt_file(txt_path: str, num_shards: int, dir_path: str) -> None:
-    """Shard a txt file into multiple small files with the 'split' command in linux."""
-    os.system(f"split -n {num_shards} {txt_path} {dir_path}/")
+def _shard_path(output_path: str, index: int):
+    return os.path.join(output_path, f"shard_{index}.npy")
 
 
-def _convert_txt_shards_to_binary(tokenizer: TokenizerBase, dir_path: str) -> None:
+def _write_binary(output_path, word_list, tokenizer):
+    tokens = np.array(tokenizer.encode(" ".join(word_list)), dtype=tokenizer.smallest_int_type())
+    np.save(output_path, tokens)
+
+
+def _txt_to_binary_shards(txt_path: str, output_path: str, tokenizer: TokenizerBase, shard_size: int) -> None:
     """Convert a directory containing a number of txt files to binary files.
 
     This will be run on the directory where the split shards of a big txt file are stored.
     """
-    # WARNING: It is crucial to keep the correct order here.
-    # Here assumptions are made on the filenames coming out of the split command, namely that it
-    # creates filenames in an alphabetical order when splitting a text file.
-    for i, f in enumerate(sorted(os.listdir(dir_path))):
-        fp = os.path.join(dir_path, f)
-        
-        with open(fp, encoding="utf-8") as txt_file:
-            array = np.array(tokenizer.encode(txt_file.read()), dtype=tokenizer.smallest_int_type())
-
-        # Save the full encoded array as a numpy binary.
-        out_name = (os.path.splitext(f)[0] + f"_binary_shard_{i}.npy")
-        out_path = os.path.join(dir_path, out_name)
-        np.save(out_path, array)
+    with open(txt_path, encoding="utf-8") as txt_file:
+        shard_counter = 0
+        current_words = []
+        for l in txt_file:
+            new_words = l.split()
+            if len(current_words) + len(new_words) > shard_size:
+                _write_binary(_shard_path(output_path, shard_counter), current_words, tokenizer)
+                shard_counter += 1
+                current_words = []
+            else:
+                current_words += new_words
+        if len(current_words):
+            _write_binary(_shard_path(output_path, shard_counter), current_words, tokenizer)
 
 
 def _merge_binaries(input_directory: str, merged_path: str) -> None:
     """Merge a all numpy binaries in a temporary directory into a single file."""
     # WARNING: It is crucial that the order of the files is maintained here.
     def _extract_shard_index(path):
-        return int(os.path.splitext(path)[0].split("_")[-1])
+        return int(os.path.splitext(path)[0].split("shard_")[-1])
 
     files = [(f, _extract_shard_index(f)) for f in os.listdir(input_directory) if f.endswith(".npy")]
     files = sorted(files, key=lambda x: x[1])
@@ -79,8 +83,15 @@ def _merge_binaries(input_directory: str, merged_path: str) -> None:
     # Read all array chunks and concatenate them at the end.
     arrays = []
     for f in files:
-        arrays.append(np.load(os.path.join(input_directory, f)))
-    np.save(merged_path, np.concatenate(arrays, axis=0))
+        arrays.append(np.memmap(os.path.join(input_directory, f)))
+
+    total_len = sum(len(a) for a in arrays)
+    result = np.memmap(merged_path, dtype=arrays[0].dtype, mode="w+", shape=(total_len))
+    start = 0
+    for a in arrays:
+        result[start:start + len(a)] = a
+        start += len(a)
+    result.flush()
 
 if __name__ == "__main__":
     args = _parse_args()
@@ -94,12 +105,11 @@ if __name__ == "__main__":
     # Make the temporary directory
     os.makedirs(tmp_dir, exist_ok=True)
 
-    # Shard the input text file.
-    _shard_txt_file(args.input_path, args.n_shards, tmp_dir)
-
     # Tokenize the text files and store them as binaries.
     tokenizer = GPT2BPETokenizer()
-    _convert_txt_shards_to_binary(tokenizer, tmp_dir)
+
+    # Shard the input text file into token binaries.
+    _txt_to_binary_shards(args.input_path, tmp_dir, tokenizer, args.shard_size)
 
     # Merge the binaries into a single file.
     output_name = os.path.splitext(os.path.basename(args.input_path))[0] + ".npy"
