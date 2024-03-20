@@ -36,7 +36,7 @@ def _download_path(url):
     return out_path
 
 def download(url):
-    #urllib.request.urlretrieve(url, _download_path(url), MyProgressBar())
+    urllib.request.urlretrieve(url, _download_path(url), MyProgressBar())
     return _download_path(url)
 
 def unpack(file_path):
@@ -45,6 +45,10 @@ def unpack(file_path):
 
 
 def to_raw_text(wiki_text):
+    # Somehow tables seem to cause errors.
+    # We can use replace_tables=False, but instead we'll just avoid
+    # pages with tables.
+    #text = wtp.parse(wiki_text).plain_text(replace_tables=False)
     text = wtp.parse(wiki_text).plain_text()
     text = html2text(text)
 
@@ -68,7 +72,7 @@ def get_title(wiki_text):
 
 
 def get_body(wiki_text):
-    body = wiki_text.split('</text')[0].split('<text')[1].split('>', maxsplit=1)[1]
+    body = wiki_text.strip().split('</text')[0].split('<text')[1].split('>', maxsplit=1)[1]
     body = to_raw_text(body)
 
     # Cut off everything after references, which is usually crap.
@@ -95,7 +99,7 @@ def page_generator(xml_path):
 
         # Skip xml start
         start = False
-        for l in f.readlines():
+        for l in f:
             # begin
             if "<page>" in l:
                 current_page = ""
@@ -106,6 +110,7 @@ def page_generator(xml_path):
             # end
             if "</page>" in l:
                 current_page += l[:l.find("</page>")]
+                start = False
                 yield current_page
             # add line to page
             else:
@@ -117,15 +122,21 @@ def process_wikipedia_xml(xml_path, output_path):
         for p in tqdm(page_generator(xml_path)):
             if bad_page(p):
                 continue
-            title = get_title(p)
-            body = get_body(p)
-            f.write(f"{title}\n{body}{END_OF_TEXT}")
+            try:
+                title = get_title(p)
+                body = get_body(p)
+                f.write(f"{title}\n{body}{END_OF_TEXT}")
+            except:
+                pass
 
 def main():
-    en_wiki_path = "enwiki-20231201-pages-articles-multistream.xml"
-    process_wikipedia_xml(en_wiki_path, "wiki_en.txt")
 
-    simple_wiki_path = download(WIKI_SIMPLE_URL)
+    # TODO: Add conversion here.
+    #en_wiki_path = "enwiki-20231201-pages-articles-multistream.xml"
+    #process_wikipedia_xml(en_wiki_path, "wiki_en.txt")
+
+    #simple_wiki_path = download(WIKI_SIMPLE_URL)
+    simple_wiki_path = "simplewiki-20231020-pages-meta-current.xml"
     process_wikipedia_xml(simple_wiki_path, "wiki_simple.txt")
 
 
