@@ -1,7 +1,7 @@
 import os
 import torch
 from tqdm import tqdm
-from text_dataset import PreEncodedDataset, data_loader
+from text_dataset import PreEncodedMemoryDataset, data_loader
 from transformer import GPT2Model, ShitGPT
 from constants import ENCODED_DATASET_DIR
 from model_checkpoints import CheckpointHandler, LossDumper
@@ -62,6 +62,7 @@ def build_optimizer(model, weight_decay, lr, betas):
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
+    #torch.backends.cuda.enable_mem_efficient_sdp(True)
     torch.multiprocessing.set_sharing_strategy('file_system')
 
     CONTEXT_WINDOW = 1024
@@ -75,14 +76,15 @@ if __name__ == "__main__":
     os.makedirs(LOSS_OUT_DIR, exist_ok=True)
 
     # Data loading.
-    preproccesed_text_paths= (os.path.join(ENCODED_DATASET_DIR, f) for f in os.listdir(ENCODED_DATASET_DIR))
-    train_dset = PreEncodedDataset(binary_file_paths=preproccesed_text_paths, context_window=CONTEXT_WINDOW)
+    preproccesed_text_paths= (os.path.join(ENCODED_DATASET_DIR, f) for f in os.listdir(ENCODED_DATASET_DIR) if f.endswith(".npy"))
+    train_dset = PreEncodedMemoryDataset(binary_file_paths=preproccesed_text_paths, context_window=CONTEXT_WINDOW)
     train_dloader = data_loader(train_dset, batch_size=BATCH_SIZE)
 
     # Build model and optimizer.
     model = ShitGPT(vocab_size=train_dset.vocab_size(), context_window=CONTEXT_WINDOW)
     model = model.cuda()
-    optimizer = build_optimizer(model, 1e-2, 3e-4, (0.9, 0.999))
+    #optimizer = build_optimizer(model, 1e-2, 3e-4, (0.9, 0.999))
+    optimizer = torch.optim.Adam(model.parameters(), lr=4e-3)
 
     # Checkpoint handling and loss dumping.
     checkpoint_handler = CheckpointHandler(checkpoint_dir=CHECKPOINT_DIR, model_name=MODEL_NAME, max_checkpoints=10, silent=False)
