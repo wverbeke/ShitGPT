@@ -74,7 +74,7 @@ class TextDataset(torch.utils.data.Dataset):
         return x, y
 
 
-class PreEncodedDataset(TextDataset):
+class PreEncodedMemoryDataset(TextDataset):
     """Pre-encoded dataset.
 
     This class should be used when training a large model on a large text volume. The text is
@@ -88,7 +88,6 @@ class PreEncodedDataset(TextDataset):
         arrays = []
         for p in binary_file_paths:
             if not p.endswith(".npy"): 
-                continue
                 raise ValueError("Expect numpy binary files to have .npy extension.")
             arrays.append(np.load(p))
 
@@ -101,10 +100,7 @@ class PreEncodedDataset(TextDataset):
         # method works out of the box.
         self._text_tensor = np.concatenate(arrays, axis=0)
         self._context_window = context_window
-        if vocab_size is None:
-            self._vocab_size = GPT2BPETokenizer().vocab_size()
-        else:
-            self._vocab_size = vocab_size
+        self._vocab_size = GPT2BPETokenizer().vocab_size()
 
     def __getitem__(self, index):
         end_index = index + self._context_window
@@ -113,6 +109,40 @@ class PreEncodedDataset(TextDataset):
         x = torch.from_numpy(self._text_tensor[index:end_index].astype(np.int64))
         y = torch.from_numpy(self._text_tensor[index+1:end_index+1].astype(np.int64))
         return x, y
+
+
+# WIP!
+class PreEncodedDiskDataset(TextDataset):
+
+    def __init__(self, binary_file_paths: Iterable, context_window: int):
+        self._memory_maps = []
+        for p in binary_file_paths:
+            if not p.endswith(".npy"):
+                raise ValueError("Expect numpy binary files to have .npy extension.")
+            self._memory_maps.append(np.memmap(p, "r"))
+        self._cum_lengths = np.cumsum(np.array(len(m) for m in self._memory_maps))
+        self._context_window = context_window
+        self._vocab_size = GPT2BPETokenizer().vocab_size()
+        
+    def _memmap_indices(self, sample_index):
+        for i, cl in enumerate(self._cum_lengths):
+            if sample_index < cl:
+                return i, cl - sample_index
+        raise IndexError(f"Out of bound sample at index {sample_index}")
+
+    def __len__(self):
+        return self._cum_lengths[-1] - self._context_window
+
+    def __getitem__(self, index):
+        
+        end_index = index + self._context_window
+             
+        # Assume the context window can never span multiple datasets.
+        mmap_start_index, sample_start_index = self._memmap_indices(index)
+
+
+
+
 
 
 def infinite_dataloader(dataloader):
