@@ -34,7 +34,7 @@ def dump_webtext():
                     continue
                 clean_text.append(w)
             clean_text = " ".join(clean_text)
-            f.write(clean_text + END_OF_TEXT)
+            f.write(clean_text + "\n" + END_OF_TEXT)
 
 def dump_bookcorpus():
     dataset = load_dataset("bookcorpus")
@@ -64,11 +64,16 @@ def dump_openorca():
             if not filter_question_openorca(question):
                 continue
             response = d["response"]
-            out_text = f"{prompt} {question} {response}{END_OF_TEXT}"
+            out_text = f"{prompt} {question} {response}\n{END_OF_TEXT}"
             f.write(out_text)
+
+def dump_c4():
+    dataset = load_dataset("allenai/c4", "en")
+    print(dataset.keys())
 
 
 if __name__ == "__main__":
     os.makedirs(TXT_DATASET_DIR, exist_ok=True)
-    dump_webtext()
-    dump_openorca()
+    #dump_webtext()
+    #dump_openorca()
+    dump_c4()
