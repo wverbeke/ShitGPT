@@ -126,22 +126,31 @@ class TransformerBlock(nn.Module):
                               introducing MobileNetV2: https://arxiv.org/abs/1801.04381.
         """
         super().__init__()
-        self._attention_layer = CausalFlashSelfAttention(in_channels=in_channels, n_heads=n_heads, dropout_p=dropout_p)
+        #self._attention_layer = CausalFlashSelfAttention(in_channels=in_channels, n_heads=n_heads, dropout_p=dropout_p)
+        self._attention_layer = nn.MultiheadAttention(in_channels, n_heads, dropout=dropout_p, bias=False, add_bias_kv=False, add_zero_attn=False, kdim=None, vdim=None, batch_first=False, device=None, dtype=None)
+        self._attn_mask = torch.tril(
         self._linear_1 = nn.Linear(in_channels, in_channels*expansion_factor, bias=True)
         self._linear_2 = nn.Linear(in_channels*expansion_factor, in_channels, bias=True)
 
-        def _do(x: torch.Tensor):
-            """Dropout."""
-            return torch.nn.functional.dropout(x, p=dropout_p, training=self.training)
-        self._do = _do
-
     def forward(self, x):
         """Forward pass."""
-        x = x + self._attention_layer(_ln(x))
+        #x = x + self._attention_layer(_ln(x))
+        normed = _ln(x)
+        x = x + self._attention_layer(normed, normed, normed, attn_mask=torch.tril(  ), is_causal=True)
 
         # TODO Does it matter to apply GeLU here instead of ReLU like in GPT papers?
         # I expect ReLU to be faster, but should test it explicitly.
-        x = x + self._do(self._linear_2(torch.nn.functional.relu(self._linear_1(_ln(x)))))
+        x = x + torch.nn.functional.dropout(
+            self._linear_2(
+                torch.nn.functional.relu(
+                    self._linear_1(
+                        _ln(x)
+                    )
+                )
+            ),
+            p=dropout_p,
+            training=self.training
+        )
         return x
 
 
@@ -255,4 +264,4 @@ class GPT2Model(TransformerModel):
 
 class ShitGPT(TransformerModel):
     def __init__(self, vocab_size, context_window):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=54, n_heads=28, dim=1904, expansion_factor=4, dropout_p=0.0)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=48, n_heads=20, dim=1280, expansion_factor=4, dropout_p=0.0)
