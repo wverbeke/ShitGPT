@@ -73,5 +73,5 @@ if __name__ == "__main__":
     shakespeare_text = get_shakespeare_text()
     test_text_dataset(shakespeare_text)
     test_pre_encoded_dataset(shakespeare_text, PreEncodedMemoryDataset)
-    #test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset)
+    test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset)
     print("Test successful.")

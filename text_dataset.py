@@ -75,6 +75,9 @@ class TextDataset(torch.utils.data.Dataset):
         return x, y
 
 
+def _tensor(array_like, start_index, end_index):
+    return torch.from_numpy(array_like[start_index:end_index].astype(np.int64))
+
 class PreEncodedMemoryDataset(TextDataset):
     """Pre-encoded dataset.
 
@@ -107,8 +110,8 @@ class PreEncodedMemoryDataset(TextDataset):
         end_index = index + self._context_window
 
         # Torch does not support all numpy types like uint16, so cast before making tensors.
-        x = torch.from_numpy(self._text_tensor[index:end_index].astype(np.int64))
-        y = torch.from_numpy(self._text_tensor[index+1:end_index+1].astype(np.int64))
+        x = _tensor(self._text_tensor, index, end_index)
+        y = _tensor(self._text_tensor, index + 1, end_index + 1)
         return x, y
 
 
@@ -130,7 +133,7 @@ class PreEncodedDiskDataset(TextDataset):
         
     def _memmap_indices(self, sample_index):
         for i, cl in enumerate(self._cum_lengths):
-            if sample_index < cl:
+            if sample_index <= cl:
                 offset = self._cum_lengths[i - 1] if i > 0 else 0
                 return i, sample_index - offset
         raise IndexError(f"Out of bound sample at index {sample_index}")
@@ -140,20 +143,27 @@ class PreEncodedDiskDataset(TextDataset):
 
     def __getitem__(self, index):
 
-        end_index = index + self._context_window
+        # + 1 because we read out a chunk containing both x and y.
+        chunk_end = index + self._context_window + 1
         
-        # Assume the context window can never span multiple datasets.
         mmap_start_index, sample_start_index = self._memmap_indices(index)
-        mmap_end_index, sample_end_index = self._memmap_indices(end_index)
+        mmap_end_index, sample_end_index = self._memmap_indices(chunk_end)
         
         # The drawn sample spans multiple datasets.
+        # Assume the context window can never span more than two datasets.
         if mmap_end_index != mmap_start_index:
             raise NotImplementedError("This branch should still be implemented.")
 
+            chunk_1 = self._memory_maps[mmap_start_index][sample_start_index:]
+            chunk_2 = self._memory_maps[mmap_end_index][:sample_end_index]
+            chunk = np.concatenate([chunk_1, chunk_2])
+
         # The drawn sample comes from a single dataset.
-        mmap = self._memory_maps[mmap_start_index]
-        x = torch.from_numpy(mmap[sample_start_index:sample_end_index].astype(np.int64))
-        y = torch.from_numpy(mmap[sample_start_index + 1:sample_end_index + 1].astype(np.int64))
+        else:
+            chunk = self._memory_maps[mmap_start_index][sample_start_index:sample_end_index]
+
+        x = _tensor(chunk, 0, -1)
+        y = _tensor(chunk, 1, len(chunk))
         return x, y
 
 
