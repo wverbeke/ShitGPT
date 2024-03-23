@@ -1,11 +1,12 @@
 import os
 import torch
 from tqdm import tqdm
-from text_dataset import PreEncodedMemoryDataset, data_loader
+from text_dataset import PreEncodedDiskDataset, data_loader
 from transformer import GPT2Model, ShitGPT
 from constants import ENCODED_DATASET_DIR
 from model_checkpoints import CheckpointHandler, LossDumper
 from training import ModelTrainer
+from io_utils import BIN_EXT
 
 
 def build_optimizer(model, weight_decay, lr, betas):
@@ -76,8 +77,8 @@ if __name__ == "__main__":
     os.makedirs(LOSS_OUT_DIR, exist_ok=True)
 
     # Data loading.
-    preproccesed_text_paths= (os.path.join(ENCODED_DATASET_DIR, f) for f in os.listdir(ENCODED_DATASET_DIR) if f.endswith(".npy"))
-    train_dset = PreEncodedMemoryDataset(binary_file_paths=preproccesed_text_paths, context_window=CONTEXT_WINDOW)
+    preproccesed_text_paths= (os.path.join(ENCODED_DATASET_DIR, f) for f in os.listdir(ENCODED_DATASET_DIR) if f.endswith(BIN_EXT))
+    train_dset = PreEncodedDiskDataset(binary_file_paths=preproccesed_text_paths, context_window=CONTEXT_WINDOW)
     train_dloader = data_loader(train_dset, batch_size=BATCH_SIZE)
 
     # Build model and optimizer.
