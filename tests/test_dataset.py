@@ -10,40 +10,42 @@ from io_utils import write_binary, BIN_EXT
 
 TMP = "tmp"
 
-def _text_from_dataset(dset: torch.utils.data.Dataset, tokenizer: TokenizerBase):
-    """Retrieve the text from a dataset with context window 1.
-
-    WARNING: This routine only works properly if context_window 1 has been set.
-    """
-    assert dset.context_window() == 1, "This routine only works for datasets with context window 1."
+def _text_from_dataset(dset: torch.utils.data.Dataset, tokenizer: TokenizerBase, context_window: int):
+    """Retrieve the text from a dataset."""
+    #assert dset.context_window() == 1, "This routine only works for datasets with context window 1."
 
     encoded_text = []
-    for i, (x, y) in enumerate(dset):
-        encoded_text.append(x)
+    last_index = 0
 
-        # Important to put to break here so another y value does not get set by the loop.
-        if i == (len(dset) - 1): break
-
-    # The last token can only be generated as a target.
-    encoded_text.append(y)
+    # The datset classes are explicitly made so that pytorch can safely sample any index and get
+    # a full context window, and the same shifted by 1 as a target.
+    end_point = len(dset) + context_window
+    while last_index + context_window <= end_point:
+        encoded_text.append(dset.slice(last_index, last_index + context_window))
+        last_index += context_window
+    if last_index < end_point:
+        encoded_text.append(dset.slice(last_index, end_point))
 
     # Decode the text.
-    return tokenizer.decode(encoded_text)
+    out = ""
+    for e in encoded_text:
+        out += tokenizer.decode(e)
+    return out
 
 
-def test_text_dataset(text: str):
+def test_text_dataset(text: str, context_window: int):
     """Test whether the outputs of text dataset are correct.
 
     To do this we will instantiate the dataset with a text, subsequently generate batches to
     reproduce the original text and see that this is indeed equal to the original text.
     """
     tokenizer=GPT2BPETokenizer()
-    dset = TextDataset(text=text, tokenizer=tokenizer, context_window=1)
-    decoded_text = _text_from_dataset(dset=dset, tokenizer=tokenizer)
+    dset = TextDataset(text=text, tokenizer=tokenizer, context_window=context_window)
+    decoded_text = _text_from_dataset(dset=dset, tokenizer=tokenizer, context_window=context_window)
     assert decoded_text == text, "Text coming out of TextDataset must be able to reproduce the original text."
 
 
-def test_pre_encoded_dataset(text: str, dataset_cls: TextDataset):
+def test_pre_encoded_dataset(text: str, dataset_cls: TextDataset, context_window: int):
 
     tokenizer=GPT2BPETokenizer()
 
@@ -55,10 +57,10 @@ def test_pre_encoded_dataset(text: str, dataset_cls: TextDataset):
     write_binary(binary_path, text, tokenizer)
 
     # Read the encoded text as a PreEncodedDataset.
-    dset = dataset_cls(binary_file_paths=[binary_path], context_window=1)
+    dset = dataset_cls(binary_file_paths=[binary_path], context_window=context_window)
 
     # Yield text from the dataset and decode.
-    decoded_text = _text_from_dataset(dset=dset, tokenizer=tokenizer)
+    decoded_text = _text_from_dataset(dset=dset, tokenizer=tokenizer, context_window=context_window)
 
     # Clean up files.
     # We do it before the final assert so that no dirty files are left if the test fails.
@@ -71,7 +73,10 @@ def test_pre_encoded_dataset(text: str, dataset_cls: TextDataset):
 
 if __name__ == "__main__":
     shakespeare_text = get_shakespeare_text()
-    test_text_dataset(shakespeare_text)
-    test_pre_encoded_dataset(shakespeare_text, PreEncodedMemoryDataset)
-    test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset)
+    test_text_dataset(shakespeare_text, 1)
+    test_text_dataset(shakespeare_text, 1000)
+    test_pre_encoded_dataset(shakespeare_text, PreEncodedMemoryDataset, 1)
+    test_pre_encoded_dataset(shakespeare_text, PreEncodedMemoryDataset, 1000)
+    test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset, 1)
+    test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset, 1000)
     print("Test successful.")

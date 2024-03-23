@@ -64,14 +64,18 @@ class TextDataset(torch.utils.data.Dataset):
         """
         return (len(self._text_tensor) - self._context_window)
 
-    def __getitem__(self, index: int):
-        end_index = index + self._context_window
 
-        # No need to copy things to GPU at this stage. GPU memory pinning can be done in the
-        # Dataloader.
-        # Offset the targets by 1 compared to the inpts, as illustrated above.
-        x = self._text_tensor[index:end_index].long()
-        y = self._text_tensor[index + 1:end_index + 1].long()
+    def slice(self, start: int, end: int):
+        return self._text_tensor[start:end].long()
+
+
+    def __getitem__(self, index: int):
+
+        # + 1 because we read out a chunk containing both x and y.
+        end_index = index + self._context_window + 1
+        text_chunk = self.slice(index, end_index)
+        x = text_chunk[:-1]
+        y = text_chunk[1:]
         return x, y
 
 
@@ -106,13 +110,8 @@ class PreEncodedMemoryDataset(TextDataset):
         self._context_window = context_window
         self._vocab_size = tokenizer.vocab_size()
 
-    def __getitem__(self, index):
-        end_index = index + self._context_window
-
-        # Torch does not support all numpy types like uint16, so cast before making tensors.
-        x = _tensor(self._text_tensor, index, end_index)
-        y = _tensor(self._text_tensor, index + 1, end_index + 1)
-        return x, y
+    def slice(self, start: int, end: int):
+        return _tensor(self._text_tensor, start, end)
 
 
 # WIP!
@@ -141,14 +140,10 @@ class PreEncodedDiskDataset(TextDataset):
     def __len__(self):
         return self._cum_lengths[-1] - self._context_window
 
-    def __getitem__(self, index):
+    def slice(self, start: int, end: int):
+        mmap_start_index, sample_start_index = self._memmap_indices(start)
+        mmap_end_index, sample_end_index = self._memmap_indices(end)
 
-        # + 1 because we read out a chunk containing both x and y.
-        chunk_end = index + self._context_window + 1
-        
-        mmap_start_index, sample_start_index = self._memmap_indices(index)
-        mmap_end_index, sample_end_index = self._memmap_indices(chunk_end)
-        
         # The drawn sample spans multiple datasets.
         # Assume the context window can never span more than two datasets.
         if mmap_end_index != mmap_start_index:
@@ -156,15 +151,9 @@ class PreEncodedDiskDataset(TextDataset):
 
             chunk_1 = self._memory_maps[mmap_start_index][sample_start_index:]
             chunk_2 = self._memory_maps[mmap_end_index][:sample_end_index]
-            chunk = np.concatenate([chunk_1, chunk_2])
+            return torch.from_numpy(np.concatenate([chunk_1, chunk_2])).long()
 
-        # The drawn sample comes from a single dataset.
-        else:
-            chunk = self._memory_maps[mmap_start_index][sample_start_index:sample_end_index]
-
-        x = _tensor(chunk, 0, -1)
-        y = _tensor(chunk, 1, len(chunk))
-        return x, y
+        return _tensor(self._memory_maps[mmap_start_index], sample_start_index, sample_end_index)
 
 
 def infinite_dataloader(dataloader):
