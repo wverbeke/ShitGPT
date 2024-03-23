@@ -126,32 +126,25 @@ class TransformerBlock(nn.Module):
                               introducing MobileNetV2: https://arxiv.org/abs/1801.04381.
         """
         super().__init__()
-        #self._attention_layer = CausalFlashSelfAttention(in_channels=in_channels, n_heads=n_heads, dropout_p=dropout_p)
-        self._attention_layer = nn.MultiheadAttention(in_channels, n_heads, dropout=dropout_p, bias=False, add_bias_kv=False, add_zero_attn=False, kdim=None, vdim=None, batch_first=False, device=None, dtype=None)
-        self._attn_mask = torch.tril(
+        self._attention_layer = CausalFlashSelfAttention(in_channels=in_channels, n_heads=n_heads, dropout_p=dropout_p)
         self._linear_1 = nn.Linear(in_channels, in_channels*expansion_factor, bias=True)
         self._linear_2 = nn.Linear(in_channels*expansion_factor, in_channels, bias=True)
+        self._dropout_p = dropout_p
 
     def forward(self, x):
         """Forward pass."""
-        #x = x + self._attention_layer(_ln(x))
-        normed = _ln(x)
-        x = x + self._attention_layer(normed, normed, normed, attn_mask=torch.tril(  ), is_causal=True)
-
-        # TODO Does it matter to apply GeLU here instead of ReLU like in GPT papers?
-        # I expect ReLU to be faster, but should test it explicitly.
-        x = x + torch.nn.functional.dropout(
-            self._linear_2(
+        x = x + self._attention_layer(_ln(x))
+        return x + torch.nn.functional.dropout(
+                self._linear_2(
                 torch.nn.functional.relu(
                     self._linear_1(
                         _ln(x)
                     )
                 )
             ),
-            p=dropout_p,
+            p=self._dropout_p,
             training=self.training
         )
-        return x
 
 
 def _init_weights(module: nn.Module):
@@ -211,10 +204,6 @@ class TransformerModel(nn.Module):
                 # block, while n_layers is the number of transformer blocks.
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * n_layers))
 
-
-    # TODO Do we need this?
-    #def context_window(self):
-    #    return self._context_window
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
