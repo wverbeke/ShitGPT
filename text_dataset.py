@@ -80,7 +80,7 @@ class PreEncodedMemoryDataset(TextDataset):
     This class should be used when training a large model on a large text volume. The text is
     expected to be preprocessed into numpy binaries with dataset_to_encoded_binary.py.
     """
-    def __init__(self, binary_file_paths: Iterable, context_window: int, vocab_size: int = None):
+    def __init__(self, binary_file_paths: Iterable, context_window: int):
         """Read a provided set of binary files containing encoded text into a large numpy array.
     
         By default the vocab size is set to the GPT 2 tokenizer's vocab size.
@@ -98,6 +98,8 @@ class PreEncodedMemoryDataset(TextDataset):
         # tensors on an as-needed basis during training.
         # Even though this is a numpy array we keep the "tensor" name so the inherited __len__
         # method works out of the box.
+
+        # Concatenate forces arrays into memory!
         self._text_tensor = np.concatenate(arrays, axis=0)
         self._context_window = context_window
         self._vocab_size = GPT2BPETokenizer().vocab_size()
@@ -119,15 +121,16 @@ class PreEncodedDiskDataset(TextDataset):
         for p in binary_file_paths:
             if not p.endswith(".npy"):
                 raise ValueError("Expect numpy binary files to have .npy extension.")
-            self._memory_maps.append(np.memmap(p, "r"))
-        self._cum_lengths = np.cumsum(np.array(len(m) for m in self._memory_maps))
+            self._memory_maps.append(np.load(p, mmap_mode="r"))
+        self._cum_lengths = np.cumsum(np.array([len(m) for m in self._memory_maps]))
         self._context_window = context_window
         self._vocab_size = GPT2BPETokenizer().vocab_size()
         
     def _memmap_indices(self, sample_index):
         for i, cl in enumerate(self._cum_lengths):
             if sample_index < cl:
-                return i, cl - sample_index
+                offset = self._cum_lengths[i - 1] if i > 0 else 0
+                return i, sample_index - offset
         raise IndexError(f"Out of bound sample at index {sample_index}")
 
     def __len__(self):
@@ -135,14 +138,19 @@ class PreEncodedDiskDataset(TextDataset):
 
     def __getitem__(self, index):
         
-        end_index = index + self._context_window
-             
         # Assume the context window can never span multiple datasets.
         mmap_start_index, sample_start_index = self._memmap_indices(index)
+        mmap_end_index, sample_end_index = self._memmap_indices(end_index)
+        
+        # The drawn sample spans multiple datasets.
+        if mmap_end_index != mmap_start_index:
+            raise NotImplementedError("This branch should still be implemented.")
 
-
-
-
+        # The drawn sample comes from a single dataset.
+        mmap = self._memory_maps[mmap_start_index]
+        x = torch.from_numpy(mmap[sample_start_index:sample_end_index].astype(np.int64))
+        y = torch.from_numpy(mmap[sample_start_index + 1:sample_end_index + 1].astype(np.int64))
+        return x, y
 
 
 def infinite_dataloader(dataloader):
