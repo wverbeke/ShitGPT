@@ -116,11 +116,14 @@ class PreEncodedMemoryDataset(TextDataset):
 class PreEncodedDiskDataset(TextDataset):
 
     def __init__(self, binary_file_paths: Iterable, context_window: int):
+
+        # TODO: There is a large overlap here with PreEncodedMemoryDataset.
+        tokenizer = GPT2BPETokenizer()
         self._memory_maps = []
         for p in binary_file_paths:
-            if not p.endswith(".npy"):
-                raise ValueError("Expect numpy binary files to have .npy extension.")
-            self._memory_maps.append(np.load(p, mmap_mode="r"))
+            if not p.endswith(BIN_EXT):
+                raise ValueError(f"Expect encoded binary files to have {BIN_EXT} extension, but got {p}.")
+            self._memory_maps.append(binary_memmap(p, tokenizer))
         self._cum_lengths = np.cumsum(np.array([len(m) for m in self._memory_maps]))
         self._context_window = context_window
         self._vocab_size = GPT2BPETokenizer().vocab_size()
@@ -136,6 +139,8 @@ class PreEncodedDiskDataset(TextDataset):
         return self._cum_lengths[-1] - self._context_window
 
     def __getitem__(self, index):
+
+        end_index = index + self._context_window
         
         # Assume the context window can never span multiple datasets.
         mmap_start_index, sample_start_index = self._memmap_indices(index)
