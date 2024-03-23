@@ -29,6 +29,7 @@ import numpy as np
 import random
 
 from tokenizer import TokenizerBase, GPT2BPETokenizer
+from io_utils import BIN_EXT, binary_memmap
 
 def _check_text_size(text_tensor, context_window):
     """Verify the context window does not exceed the input text."""
@@ -81,15 +82,13 @@ class PreEncodedMemoryDataset(TextDataset):
     expected to be preprocessed into numpy binaries with dataset_to_encoded_binary.py.
     """
     def __init__(self, binary_file_paths: Iterable, context_window: int):
-        """Read a provided set of binary files containing encoded text into a large numpy array.
-    
-        By default the vocab size is set to the GPT 2 tokenizer's vocab size.
-        """
+        """Read a provided set of binary files containing encoded text into a large numpy array."""
+        tokenizer = GPT2BPETokenizer()
         arrays = []
         for p in binary_file_paths:
-            if not p.endswith(".npy"): 
-                raise ValueError("Expect numpy binary files to have .npy extension.")
-            arrays.append(np.load(p))
+            if not p.endswith(BIN_EXT): 
+                raise ValueError(f"Expect encoded binary files to have {BIN_EXT} extension, but got {p}.")
+            arrays.append(binary_memmap(p, tokenizer))
 
         # Note that we do not want to convert this array to a torch tensor here.
         # Torch does not support uint16, but the GPT 2 tokenizer has only 50257 tokens, meaning
@@ -102,7 +101,7 @@ class PreEncodedMemoryDataset(TextDataset):
         # Concatenate forces arrays into memory!
         self._text_tensor = np.concatenate(arrays, axis=0)
         self._context_window = context_window
-        self._vocab_size = GPT2BPETokenizer().vocab_size()
+        self._vocab_size = tokenizer.vocab_size()
 
     def __getitem__(self, index):
         end_index = index + self._context_window
