@@ -3,6 +3,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import numpy as np
 
+from typing import Dict
 from text_dataset import TextDataset, PreEncodedMemoryDataset, PreEncodedDiskDataset
 from tokenizer import GPT2BPETokenizer, TokenizerBase
 from utils import get_shakespeare_text
@@ -45,38 +46,50 @@ def test_text_dataset(text: str, context_window: int):
     assert decoded_text == text, "Text coming out of TextDataset must be able to reproduce the original text."
 
 
-def test_pre_encoded_dataset(text: str, dataset_cls: TextDataset, context_window: int):
+def test_pre_encoded_dataset(texts: Dict[str, str], dataset_cls: TextDataset, context_window: int):
 
     tokenizer=GPT2BPETokenizer()
 
-    # Write text to temporary numpy file.
-    test_dir = os.path.dirname(__file__)
-    tmp_dir = os.path.join(test_dir, TMP)
-    os.makedirs(tmp_dir, exist_ok=True)
-    binary_path = os.path.join(tmp_dir, f"test_pre_encoded{BIN_EXT}")
-    write_binary(binary_path, text, tokenizer)
+    # Write texts to temporary numpy file.
+    binary_paths = []
+    for name, body in texts.items():
+        test_dir = os.path.dirname(__file__)
+        tmp_dir = os.path.join(test_dir, TMP)
+        os.makedirs(tmp_dir, exist_ok=True)
+        binary_path = os.path.join(tmp_dir, f"_{name}_test_pre_encoded{BIN_EXT}")
+        write_binary(binary_path, body, tokenizer)
+        binary_paths.append(binary_path)
 
     # Read the encoded text as a PreEncodedDataset.
-    dset = dataset_cls(binary_file_paths=[binary_path], context_window=context_window)
+    dset = dataset_cls(binary_file_paths=binary_paths, context_window=context_window)
 
     # Yield text from the dataset and decode.
     decoded_text = _text_from_dataset(dset=dset, tokenizer=tokenizer, context_window=context_window)
 
     # Clean up files.
     # We do it before the final assert so that no dirty files are left if the test fails.
-    os.remove(binary_path)
+    for p in binary_paths:
+        os.remove(p)
     os.rmdir(tmp_dir)
 
+    # The original text to compare to is all input texts appended.
+    full_text = ""
+    for _, body in texts.items():
+        full_text += body
+
     # Verify that the original text can be reproduced.
-    assert decoded_text == text, "Text coming out of TextDataset must be able to reproduce the original text."
+    assert decoded_text == full_text, "Text coming out of TextDataset must be able to reproduce the original text."
 
 
 if __name__ == "__main__":
     shakespeare_text = get_shakespeare_text()
     test_text_dataset(shakespeare_text, 1)
     test_text_dataset(shakespeare_text, 1000)
-    test_pre_encoded_dataset(shakespeare_text, PreEncodedMemoryDataset, 1)
-    test_pre_encoded_dataset(shakespeare_text, PreEncodedMemoryDataset, 1000)
-    test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset, 1)
-    test_pre_encoded_dataset(shakespeare_text, PreEncodedDiskDataset, 1000)
+    
+    # Test the multi-dataset setting by repeating the Shakespeare dataset.
+    multi_text = {"shakespeare": shakespeare_text, "shakespeare_2": shakespeare_text}
+    test_pre_encoded_dataset(multi_text, PreEncodedMemoryDataset, 1)
+    test_pre_encoded_dataset(multi_text, PreEncodedMemoryDataset, 1000)
+    test_pre_encoded_dataset(multi_text, PreEncodedDiskDataset, 1)
+    test_pre_encoded_dataset(multi_text, PreEncodedDiskDataset, 1000)
     print("Test successful.")

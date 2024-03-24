@@ -147,11 +147,9 @@ class PreEncodedDiskDataset(TextDataset):
         # The drawn sample spans multiple datasets.
         # Assume the context window can never span more than two datasets.
         if mmap_end_index != mmap_start_index:
-            raise NotImplementedError("This branch should still be implemented.")
-
             chunk_1 = self._memory_maps[mmap_start_index][sample_start_index:]
             chunk_2 = self._memory_maps[mmap_end_index][:sample_end_index]
-            return torch.from_numpy(np.concatenate([chunk_1, chunk_2])).long()
+            return torch.from_numpy(np.concatenate([chunk_1, chunk_2]).astype(np.int64))
 
         return _tensor(self._memory_maps[mmap_start_index], sample_start_index, sample_end_index)
 
