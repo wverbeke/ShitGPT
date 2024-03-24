@@ -110,7 +110,6 @@ class CausalTorchSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor):
         """Forward pass."""
-        #q, k, v = self._att_transf(x).split(self._in_channels, dim=-1)
         q = k = v = x
         return self._mha(q, k, v, need_weights=False, attn_mask=self._causal_mask, is_causal=True)[0]
 
