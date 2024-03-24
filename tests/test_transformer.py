@@ -2,6 +2,7 @@
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import time
 import torch
 from torch import nn
 from transformer import CausalSelfAttention, CausalFlashSelfAttention, CausalTorchSelfAttention
@@ -40,5 +41,27 @@ def test_attention():
     print("Test successful.")
 
 
+def benchmark_attention(batch_size, context_window, in_channels, n_heads, n_iterations):
+    assert torch.cuda.is_available(), "The attention benchmark should be run on GPU."
+
+    fa = CausalFlashSelfAttention(in_channels, n_heads).cuda()
+    ta = CausalTorchSelfAttention(in_channels, n_heads, context_window).cuda()
+
+    in_tensor = torch.rand(batch_size, context_window, in_channels).cuda()
+    t_start = time.time()
+    for _ in range(n_iterations):
+        fa(in_tensor)
+    t_end = time.time()
+    print(f"Manual flash attention took {t_end - t_start} s.")
+
+    t_start = time.time()
+    for _ in range(n_iterations):
+        ta(in_tensor)
+    t_end = time.time()
+    print(f"nn.MultiHeadAttention took {t_end - t_start} s.")
+
+
+
 if __name__ == "__main__":
     test_attention()
+    benchmark_attention(64, 1000, 1024, 32, 1000)

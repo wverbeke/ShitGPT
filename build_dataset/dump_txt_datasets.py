@@ -4,6 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tqdm import tqdm
 from tokenizer import END_OF_TEXT
 from datasets import load_dataset
+#from torchtext.datasets import CC100
 import re
 
 TXT_DATASET_DIR = "raw_text_datasets"
@@ -72,8 +73,38 @@ def dump_c4():
     print(dataset.keys())
 
 
+def dump_cc100():
+    #dataset = CC100(root="./torchtext_datasets/", language_code="en")
+    dataset = load_dataset("cc100", "en")
+    dataset = dataset["train"]
+    for i, d in enumerate(dataset):
+        t = d["text"]
+        if len(t) >= 2000:
+            print(t)
+
+
+def dump_alpaca_gpt4():
+    dataset = load_dataset("vicgalle/alpaca-gpt4")
+    dataset = dataset["train"]
+    output_path = os.path.join(TXT_DATASET_DIR, "alpaca.txt")
+    with open(output_path, "w", encoding="utf-8") as f:
+        for d in tqdm(dataset):
+            instruction = d["instruction"]
+            inp = d["input"]
+            outp = d["output"]
+            out_text = f"{instruction} {inp} {outp}\n{END_OF_TEXT}"
+            f.write(out_text)
+
+#dataset = load_dataset("Open-Orca/SlimOrca-Dedup")
+
+
+
+
 if __name__ == "__main__":
     os.makedirs(TXT_DATASET_DIR, exist_ok=True)
     #dump_webtext()
     #dump_openorca()
-    dump_c4()
+    #dump_c4()
+    dump_cc100()
+    #dump_alpaca_gpt4()
+
