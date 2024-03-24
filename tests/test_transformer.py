@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from torch import nn
-from transformer import CausalSelfAttention, CausalFlashSelfAttention
+from transformer import CausalSelfAttention, CausalFlashSelfAttention, CausalTorchSelfAttention
 
 IN_CHANNELS = 20
 N_HEADS = 5
@@ -30,8 +30,13 @@ def test_attention():
     da._value_transf.weight = nn.Parameter(att_trans_weights[IN_CHANNELS*2:, :])
     da._out_transf.weight = nn.Parameter(out_transf_weights)
 
-    #print(da(in_tensor))
-    assert(torch.allclose(da(in_tensor), fa(in_tensor))), "Different attention implementations do not give the same result."
+    assert(torch.allclose(da(in_tensor), fa(in_tensor))), "Naive and Flash attention implementations do not give the same result."
+
+    ta = CausalTorchSelfAttention(IN_CHANNELS, N_HEADS, CONTEXT_WINDOW)
+    ta._mha.out_proj.weight = nn.Parameter(out_transf_weights)
+    ta._mha.in_proj_weight = nn.Parameter(att_trans_weights)
+
+    assert(torch.allclose(ta(in_tensor), fa(in_tensor))), "nn.MultiHead and Flash attention implementations do not give the same result."
     print("Test successful.")
 
 

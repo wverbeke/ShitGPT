@@ -97,6 +97,25 @@ class CausalFlashSelfAttention(nn.Module):
         return self._out_transf(out)
 
 
+class CausalTorchSelfAttention(nn.Module):
+    """Wrap nn.MultiHeadAttention with causality."""
+
+    def __init__(self, in_channels: int, n_heads: int, context_window: int, dropout_p: float=0.0):
+        """Initialize."""
+        super().__init__()
+        assert in_channels%n_heads == 0, "The state dimensionality should be divisible by the number of attention heads."
+        self._mha = torch.nn.MultiheadAttention(embed_dim=in_channels, num_heads=n_heads, dropout=dropout_p, bias=False, add_bias_kv=False, batch_first=True)
+        self._causal_mask = torch.tril(torch.ones(context_window, context_window))
+        
+
+    def forward(self, x: torch.Tensor):
+        """Forward pass."""
+        #q, k, v = self._att_transf(x).split(self._in_channels, dim=-1)
+        q = k = v = x
+        return self._mha(q, k, v, need_weights=False, attn_mask=self._causal_mask, is_causal=True)[0]
+
+
+
 
 def _ln(x: torch.Tensor):
     """Making layernorm easier to call."""
