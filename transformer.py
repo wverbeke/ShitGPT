@@ -20,24 +20,27 @@ class CausalSelfAttention(nn.Module):
         self._key_transf = nn.Linear(in_channels, in_channels, bias=False)
         self._value_transf = nn.Linear(in_channels, in_channels, bias=False)
         self._n_heads = n_heads
-        self._view_dim = (n_heads, in_channels//n_heads)
+        self._head_dim = in_channels//n_heads
         self.register_buffer("mask", torch.tril(torch.ones(context_window, context_window)))
+        self._out_transf = nn.Linear(in_channels, in_channels, bias=False)
 
 
     def forward(self, x: torch.Tensor):
         """Forward pass."""
         B, T, C = x.shape
-        queries = self._query_transf(x).view(B, self._view_dim[0], T, self._view_dim[1])
-        keys = self._key_transf(x).view(B, self._view_dim[0], T, self._view_dim[1])
-        values = self._value_transf(x).view(B, self._view_dim[0], T, self._view_dim[1])
+        queries = self._query_transf(x).view(B, T, self._n_heads, self._head_dim).transpose(1, 2)
+        keys = self._key_transf(x).view(B, T, self._n_heads, self._head_dim).transpose(1, 2)
+        values = self._value_transf(x).view(B, T, self._n_heads, self._head_dim).transpose(1, 2)
         
         attention = queries @ keys.transpose(-2, -1)
-        attention = attention / (self._view_dim[1]**0.5)
+        attention = attention / (self._head_dim**0.5)
         attention = attention.masked_fill(self.mask==0, float("-inf"))
         attention = nn.functional.softmax(attention, dim=-1)
         
+        # B, H, N, D
         output = attention @ values
-        return output.view(B, T, C)
+        output = output.transpose(1, 2).contiguous().view(B, T, C)
+        return self._out_transf(output)
 
 
 class CausalFlashSelfAttention(nn.Module):
@@ -59,7 +62,7 @@ class CausalFlashSelfAttention(nn.Module):
         self._att_transf = nn.Linear(in_channels, 3 * in_channels, bias=False)
 
         # The original transformer paper (https://arxiv.org/abs/1706.03762) also does a projection
-        # as a part of the attention block. WE apply this as well.
+        # as a part of the attention block. We apply this as well.
         self._out_transf = nn.Linear(in_channels, in_channels, bias=False)
         self._n_heads = n_heads
         self._head_dim = in_channels//n_heads
