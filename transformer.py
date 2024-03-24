@@ -274,4 +274,4 @@ class GPT2Model(TransformerModel):
 
 class ShitGPT(TransformerModel):
     def __init__(self, vocab_size, context_window):
-        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=48, n_heads=20, dim=1280, expansion_factor=4, dropout_p=0.0)
+        super().__init__(vocab_size=vocab_size, context_window=context_window, n_layers=52, n_heads=20, dim=1280, expansion_factor=4, dropout_p=0.0)
